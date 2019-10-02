@@ -2,26 +2,29 @@
 //This is a automatic generated file
 //Please do not modify this file
 //If you touch this file your change will be overwritten during the next build
-//This file has been generated on 2019-09-30 18:13:25
+//This file has been generated on 2019-10-02 21:57:32
 
 #include "Arduino.h"
-#include <Arduino.h>
+#include "Arduino.h"
 #define TEXT_ID0 "CAMERA MOVER"
-#define TEXT_ID1 ""
+#define TEXT_ID1 "GROWMAT.CZ"
 #include <AccelStepper.h>
 extern const byte KPD_ROWS;
 extern const byte KPD_COLS;
-#define KPD_I2CADDR 0x38
+#define KPD_I2CADDR 0x20
 #define OK_DELAY 500
-#define LCD_I2CADDR 0x3F
+#define LCD_I2CADDR 0x27
 extern const byte LCD_ROWS;
 extern const byte LCD_COLS;
-#define LED_PIN 	6
-#define SHOT_PIN	13
-#define R_DIR_PIN	4
-#define R_PUL_PIN	5
-#define L_DIR_PIN	2
-#define L_PUL_PIN	3
+#define LED_PIN 	13
+#define PRESHOT_PIN	3
+#define SHOT_PIN	4
+#define R_DIR_PIN	12
+#define R_PUL_PIN	11
+#define R_ENA_PIN	10
+#define L_DIR_PIN	8
+#define L_PUL_PIN	7
+#define L_ENA_PIN	6
 extern AccelStepper stepperL;
 extern AccelStepper stepperR;
 #define SHOTMODE_ADDR		4
@@ -42,12 +45,18 @@ extern AccelStepper stepperR;
 #define RMIN_ADDR			64
 #define LMAX_ADDR			68
 #define RMAX_ADDR			72
+#define LSCALE_ADDR			76
+#define RSCALE_ADDR			80
+#define LENAINV_ADDR		92
+#define RENAINV_ADDR		96
+#define STOPS2_ADDR			84
 #define MESSAGE_CMD_REQUEST  		"?"
 #define MESSAGE_CMD_PARREADINT 		"#PRI"
 #define MESSAGE_CMD_PARREADFLOAT 	"#PRF"
 #define MESSAGE_CMD_PARWRITEINT 	"#PWI"
 #define MESSAGE_CMD_PARWRITEFLOAT 	"#PWF"
 #define MESSAGE_CMD_PARRELOAD 		"#PLD"
+#define MESSAGE_CMD_SETZ 		"Z"
 #define MESSAGE_CMD_SETL 		"L"
 #define MESSAGE_CMD_SETR 		"R"
 #define MESSAGE_CMD_SCROLL 		"S"
@@ -71,18 +80,18 @@ extern byte secondsCounter;
 extern bool secToggle;
 extern char uiKeyPressed;
 extern int uiState;
-extern unsigned long uiKeyTime;
+extern unsigned long uiKeyMillis;
 extern unsigned long preShotMillis;
 extern long lComm;
 extern long stops;
-extern byte shotMode;
-extern bool shotControl;
-extern bool shotAuto;
+extern byte preShotMode;
+extern bool preShotControl;
+extern bool preShotAuto;
 extern bool leftDirInv;
-extern int rightAcc;
 extern unsigned int pulSpeed;
 extern long l0;
 extern unsigned int pulSpeedPrev;
+extern long lScale;
 extern int shotState;
 #include "LiquidCrystal_I2C.h"
 extern LiquidCrystal_I2C lcd;
@@ -94,6 +103,9 @@ extern byte colPins[];
 #include "OMEEPROM.h"
 #include "OMMenuMgr2.h"
 
+bool stepperRunL() ;
+bool stepperRunR() ;
+void steppersRun() ;
 void delayWithSteppersRun(unsigned long delay) ;
 void serialPrintParInt(int address) ;
 void serialPrintParFloat(int address) ;
@@ -102,7 +114,6 @@ void saveDefaultEEPROM() ;
 void setSteppers() ;
 void setup() ;
 bool getInstrumentControl(bool a, byte mode) ;
-double analogRead(int pin, int samples);
 void setPosInit() ;
 void setPosLR0() ;
 void setPosLR1() ;

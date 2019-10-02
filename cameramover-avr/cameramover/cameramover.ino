@@ -1,7 +1,7 @@
-#include <Arduino.h>
+#include "Arduino.h"
 
 #define TEXT_ID0 "CAMERA MOVER"
-#define TEXT_ID1 ""
+#define TEXT_ID1 "GROWMAT.CZ"
 
 //#include "libraries/Timer3/TimerThree.h"
 //#include <TimerOne.h>
@@ -12,7 +12,7 @@
 const byte KPD_ROWS = 4;
 const byte KPD_COLS = 4;
 
-#define KPD_I2CADDR 0x38
+#define KPD_I2CADDR 0x20 //0x38
 char keys[KPD_ROWS][KPD_COLS] = {
 		  {'1','2','3','A'},
 		  {'4','5','6','B'},
@@ -22,17 +22,22 @@ char keys[KPD_ROWS][KPD_COLS] = {
 
 #define OK_DELAY 500
 
-#define LCD_I2CADDR 0x3F
+#define LCD_I2CADDR 0x27 //0x3F
 const byte LCD_ROWS = 2;
 const byte LCD_COLS = 16;
 
-#define LED_PIN 	6	//13
+#define LED_PIN 	13	//13
 
-#define SHOT_PIN	13	//6	//12 //5
-#define R_DIR_PIN	4	//2//10 //6
-#define R_PUL_PIN	5	//3//11 //7
-#define L_DIR_PIN	2	//4//8
-#define L_PUL_PIN	3	//5//9
+#define PRESHOT_PIN	3
+#define SHOT_PIN	4	//6	//12 //5
+
+#define R_DIR_PIN	12	//2//10 //6
+#define R_PUL_PIN	11	//3//11 //7
+#define R_ENA_PIN	10
+
+#define L_DIR_PIN	8	//4//8
+#define L_PUL_PIN	7	//5//9
+#define L_ENA_PIN	6
 
 AccelStepper stepperL(AccelStepper::DRIVER, L_PUL_PIN, L_DIR_PIN);
 AccelStepper stepperR(AccelStepper::DRIVER, R_PUL_PIN, R_DIR_PIN);
@@ -55,6 +60,14 @@ AccelStepper stepperR(AccelStepper::DRIVER, R_PUL_PIN, R_DIR_PIN);
 #define RMIN_ADDR			64
 #define LMAX_ADDR			68
 #define RMAX_ADDR			72
+#define LSCALE_ADDR			76
+#define RSCALE_ADDR			80
+//#define LANGLE_ADDR			84
+//#define RANGLE_ADDR			88
+#define LENAINV_ADDR		92
+#define RENAINV_ADDR		96
+#define STOPS2_ADDR			84
+//#define OVERLAYMODE_ADDR	104
 
 #define MESSAGE_CMD_REQUEST  		"?"
 
@@ -132,21 +145,25 @@ unsigned long preShotMillis, shotMillis, postShotMillis;
 //long leftPuls, rightPuls;
 //long leftPulsPos, rightPulsPos;
 long lComm, rComm, zComm;
-long stops, stopsCounter;
+long stops, stopsCounter, stops2, stopsCounter2;
 
 // control
-byte shotMode, rightDirMode, rightPulMode, leftPulMode, leftDirMode;;
-bool shotControl, rightPulControl, rightDirControl, leftPulControl, leftDirControl;
-bool shotAuto, rightPulAuto, rightDirAuto, leftPulAuto, leftDirAuto;
-bool leftDirInv, rightDirInv, shotInv;
+byte preShotMode, shotMode, rightDirMode, rightPulMode, leftPulMode, leftDirMode;
+bool preShotControl, shotControl, rightPulControl, rightDirControl, leftPulControl, leftDirControl;
+bool preShotAuto, shotAuto, rightPulAuto, rightDirAuto, leftPulAuto, leftDirAuto;
+bool leftDirInv, rightDirInv, preShotInv, shotInv, leftEnaInv, rightEnaInv;
 
 //#define STEPS_ACC 16
-int rightAcc, rightAccSkip, leftAcc, leftAccSkip;
+//int rightAcc, rightAccSkip, leftAcc, leftAccSkip;
 
 // parameters
 unsigned int pulSpeed, pulAcceleration, preShotTime, shotTime, postShotTime;
 long l0, r0, l1, r1, lMax, lMin, rMax, rMin;
 unsigned int pulSpeedPrev;
+
+long lScale, rScale;
+//long lAngle, rAngle, overlay;
+//byte overlayMode;
 
 int shotState;
 
@@ -185,11 +202,41 @@ bool parseCmd(String &text, const char* cmd, byte &mode, const int address=0) {
 //#include <Wire.h>
 //#include <SoftwareSerial.h>
 
+bool stepperRunL() {
+	if(leftEnaInv)
+		digitalWrite(L_ENA_PIN, !stepperL.isRunning());
+	else
+		digitalWrite(L_ENA_PIN, stepperL.isRunning());
+
+	if(stepperL.targetPosition() > lMax)
+			stepperL.moveTo(lMax);
+	if(stepperL.targetPosition() < lMin)
+		stepperL.moveTo(lMin);
+	return stepperL.run();
+}
+
+bool stepperRunR() {
+	if(rightEnaInv)
+		digitalWrite(R_ENA_PIN, !stepperR.isRunning());
+	else
+		digitalWrite(R_ENA_PIN, stepperR.isRunning());
+
+	if(stepperR.targetPosition() > rMax)
+		stepperR.moveTo(rMax);
+	if(stepperR.targetPosition() < rMin)
+		stepperR.moveTo(rMin);
+	return 	stepperR.run();;
+}
+
+void steppersRun() {
+	stepperRunL();
+	stepperRunR();
+}
+
 void delayWithSteppersRun(unsigned long delay) {
 	unsigned long delayMillis = millis();
 	while(millis() - delayMillis < delay) {
-		stepperL.run();
-		stepperR.run();
+		steppersRun();
 	}
 }
 
@@ -330,36 +377,45 @@ public:
 			if(bitMap[0] == 1) rightDirMode=0;
 			*/
 		}
-		if((bitMap[3] == 2 || bitMap[3] == 2 + 8) || uiState == UISTATE_CONTROL) {
+		if((bitMap[3] == 2 || bitMap[3] == 2 + 4) || uiState == UISTATE_CONTROL) {
 			//7 +
 			//TODO: move calibration
-			if(bitMap[3] == 8 || bitMap[3] == 8 + 2) {
-				stepperL.move(10000);
+			//if(bitMap[3] == 8 || bitMap[3] == 8 + 2) {
+			if(bitMap[2] == 4) {
+				//stepperL.move(10000);
+				stepperL.moveTo(min(lMax, stepperL.currentPosition() + 1000));
 			}
 			else if(bitMap[2] == 8) {
-				stepperL.move(-10000);
+				//stepperL.move(-10000);
+				stepperL.moveTo(max(lMin, stepperL.currentPosition() - 1000));
 			}
 			else {
 				if(stepperL.isRunning()) {
 					stepperL.setAcceleration(100000000.0);
 					stepperL.stop();
-					while(stepperL.runSpeed());
+					while(stepperRunL());
 					stepperL.setAcceleration(pulAcceleration);
+					//stepperL.moveTo(stepperL.currentPosition());
 				}
 			}
 
-			if(bitMap[1] == 8) {
-				stepperR.move(10000);
+			//if(bitMap[1] == 8) {
+			if(bitMap[3] == 4 || bitMap[3] == 4 + 2) {
+				//stepperR.move(10000);
+				stepperR.moveTo(min(rMax, stepperR.currentPosition() + 1000));
 			}
-			else if(bitMap[0] == 8) {
-				stepperR.move(-10000);
+			//else if(bitMap[0] == 8) {
+			else if(bitMap[1] == 4) {
+				//stepperR.move(-10000);
+				stepperR.moveTo(max(rMin, stepperR.currentPosition() - 1000));
 			}
 			else {
 				if(stepperR.isRunning()) {
 					stepperR.setAcceleration(100000000.0);
 					stepperR.stop();
-					while(stepperR.runSpeed());
+					while(stepperRunR());
 					stepperR.setAcceleration(pulAcceleration);
+					//stepperR.moveTo(stepperR.currentPosition());
 				}
 			}
 
@@ -448,8 +504,10 @@ MENU_ITEM shotMode_item = 		{{"SHOT OUTPUT"}, ITEM_VALUE, 0, MENU_TARGET(&shotMo
 //MENU_LIST const submenu_list1[] = { &printMode_item, &leftPulMode_item, &leftDirMode_item, &rightPulMode_item, &rightDirMode_item,};
 //MENU_ITEM menu_submenu1 =      { {"OUTPUTS->"},  ITEM_MENU,  MENU_SIZE(submenu_list1),  MENU_TARGET(&submenu_list1) };
 
-MENU_VALUE stops_value = {TYPE_UINT, 0, 0, MENU_TARGET(&stops), STOPS_ADDR};
+MENU_VALUE stops_value = {TYPE_ULONG, 0, 0, MENU_TARGET(&stops), STOPS_ADDR};
 MENU_ITEM stops_item = 			{{"STOPS[-]"}, ITEM_VALUE, 0, MENU_TARGET(&stops_value)};
+MENU_VALUE stops2_value = {TYPE_LONG, 0, 0, MENU_TARGET(&stops2), STOPS2_ADDR};
+MENU_ITEM stops2_item = 			{{"STOPS 2[-]"}, ITEM_VALUE, 0, MENU_TARGET(&stops2_value)};
 
 MENU_VALUE l0_value = {TYPE_LONG, 0, 0, MENU_TARGET(&l0), L0_ADDR};
 MENU_ITEM l0_item = 			{{"L0[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&l0_value)};
@@ -460,7 +518,7 @@ MENU_ITEM l1_item = 			{{"L1[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&l1_value) };
 MENU_VALUE r1_value = {TYPE_LONG, 0, 0, MENU_TARGET(&r1),R1_ADDR };
 MENU_ITEM r1_item =				{{"R1[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&r1_value) };
 
-MENU_VALUE lmin_value = {TYPE_LONG, 0, 0, MENU_TARGET(&lMin), LMAX_ADDR};
+MENU_VALUE lmin_value = {TYPE_LONG, 0, 0, MENU_TARGET(&lMin), LMIN_ADDR};
 MENU_ITEM lmin_item = 			{{"LMIN[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&lmin_value)};
 MENU_VALUE rmin_value = {TYPE_LONG, 0, 0, MENU_TARGET(&rMin),RMIN_ADDR};
 MENU_ITEM rmin_item =				{{"RMIN[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&rmin_value)};
@@ -488,10 +546,29 @@ MENU_ITEM leftDirInv_item  = 	{{"LEFT DIR INV"}, ITEM_VALUE, 0, MENU_TARGET(&lef
 MENU_VALUE shotInv_value = {TYPE_BYTE, 1, 0, MENU_TARGET(&shotInv), SHOTINV_ADDR};
 MENU_ITEM shotInv_item = 		{{"SHOT INVERSION"}, ITEM_VALUE, 0, MENU_TARGET(&shotInv_value) };
 
+MENU_VALUE leftEnaInv_value = {TYPE_BYTE, 1, 0, MENU_TARGET(&leftEnaInv), LENAINV_ADDR};
+MENU_ITEM leftEnaInv_item = 	{{"LEFT ENA INV"}, ITEM_VALUE, 0, MENU_TARGET(&leftEnaInv_value) };
+MENU_VALUE rightEnaInv_value = {TYPE_BYTE, 1, 0, MENU_TARGET(&rightEnaInv), RENAINV_ADDR};
+MENU_ITEM rightEnaInv_item = 	{{"RIGHT ENA INV"}, ITEM_VALUE, 0, MENU_TARGET(&rightEnaInv_value) };
+
+MENU_VALUE lscale_value = {TYPE_LONG, 0, 0, MENU_TARGET(&lScale), LSCALE_ADDR};
+MENU_ITEM lscale_item = 		{{"LSCALE[st/deg]"}, ITEM_VALUE, 0, MENU_TARGET(&lscale_value)};
+MENU_VALUE rscale_value = {TYPE_LONG, 0, 0, MENU_TARGET(&rScale),RSCALE_ADDR};
+MENU_ITEM rscale_item =			{{"RSCALE[st/deg]"}, ITEM_VALUE, 0, MENU_TARGET(&rscale_value)};
+
+/*
+MENU_VALUE langle_value = {TYPE_LONG, 0, 0, MENU_TARGET(&lAngle), LANGLE_ADDR};
+MENU_ITEM langle_item = 		{{"LANGEL[deg]"}, ITEM_VALUE, 0, MENU_TARGET(&langle_value) };
+MENU_VALUE rangle_value = {TYPE_LONG, 0, 0, MENU_TARGET(&rAngle),RANGLE_ADDR };
+MENU_ITEM rangle_item =			{{"RANGEL[deg]"}, ITEM_VALUE, 0, MENU_TARGET(&rangle_value) };
+MENU_VALUE overlayMode_value = {TYPE_UINT, 0, 0, MENU_TARGET(&overlayMode), OVERLAYMODE_ADDR};
+MENU_ITEM overlayMode_item = 	{{"OVERLAY MODE"}, ITEM_VALUE, 0, MENU_TARGET(&overlayMode_value)};
+*/
+
 MENU_ITEM item_reset = 			{{"RESET DEFAULTS!"}, ITEM_ACTION, 0, MENU_TARGET(&uiResetAction) };
 //MENU_ITEM item_info   = { {"INFO->"},  ITEM_ACTION, 0,        MENU_TARGET(&uiInfo) };
 
-MENU_LIST const submenu_list5[] = {&stops_item, &speed_item, &acceleration_item, &l0_item, &r0_item, &l1_item, &r1_item, &preShotTime_item, &shotTime_item, &postShotTime_item, &leftDirInv_item, &rightDirInv_item, &shotInv_item, &shotMode_item, &lmin_item, &rmin_item, &lmax_item, &rmax_item, &item_reset};
+MENU_LIST const submenu_list5[] = {&stops_item, &stops2_item, &speed_item, &acceleration_item, &l0_item, &r0_item, &l1_item, &r1_item, &preShotTime_item, &shotTime_item, &postShotTime_item, &leftDirInv_item, &leftEnaInv_item, &rightDirInv_item, &rightEnaInv_item, &shotInv_item, &shotMode_item, &lmin_item, &rmin_item, &lmax_item, &rmax_item, &lscale_item, &rscale_item, &item_reset}; //&langle_item, &rangle_item, &overlayMode_item,
 MENU_ITEM menu_submenu5 = 		{{"SETTINGS->"}, ITEM_MENU, MENU_SIZE(submenu_list5), MENU_TARGET(&submenu_list5)};
 
 MENU_ITEM item_control = 		{{"CALIBRATION"}, ITEM_ACTION, 0, MENU_TARGET(&uiControl)};
@@ -549,13 +626,21 @@ void loadEEPROM() {
     read(RMIN_ADDR, rMin);
     read(LMAX_ADDR, lMax);
     read(RMAX_ADDR, rMax);
+    read(LSCALE_ADDR, lScale);
+    read(RSCALE_ADDR, rScale);
+    //read(LANGLE_ADDR, lAngle);
+    //read(RANGLE_ADDR, rAngle);
+    read(LENAINV_ADDR, leftEnaInv);
+    read(RENAINV_ADDR, rightEnaInv);
+    //read(OVERLAYMODE_ADDR, overlayMode);
+    read(STOPS2_ADDR, stops2);
 }
 
 void saveDefaultEEPROM() {
 	shotMode = 0;
 	pulSpeed = 4000;
 	pulAcceleration = 100;
-	stops = 0;
+	stops = 2;
 	preShotTime = 3000;
 	shotTime = 500;
 	postShotTime = 1500;
@@ -570,6 +655,12 @@ void saveDefaultEEPROM() {
 	rMin = -10000;
 	lMax = 10000;
 	rMax = 10000;
+	lScale = 10;
+	rScale = 10;
+	//lAngle = 30;
+	//rAngle = 30;
+	//overlayMode = 1;
+	stops2 = 0;
 
     using namespace OMEEPROM;
     write(SHOTMODE_ADDR, shotMode);
@@ -590,6 +681,14 @@ void saveDefaultEEPROM() {
     write(RMIN_ADDR, rMin);
     write(LMAX_ADDR, lMax);
     write(RMAX_ADDR, rMax);
+    write(LSCALE_ADDR, lScale);
+    write(RSCALE_ADDR, rScale);
+    //write(LANGLE_ADDR, lAngle);
+    //write(RANGLE_ADDR, rAngle);
+    write(LENAINV_ADDR, leftEnaInv);
+    write(RENAINV_ADDR, rightEnaInv);
+    //write(OVERLAYMODE_ADDR, overlayMode);
+    write(STOPS2_ADDR, stops2);
 }
 
 void setSteppers() {
@@ -608,15 +707,20 @@ void setSteppers() {
 
 void setup() {
 
-	digitalWrite(SHOT_PIN, false);
-	pinMode(SHOT_PIN, OUTPUT);
+	//digitalWrite(SHOT_PIN, false);
+	//pinMode(SHOT_PIN, OUTPUT);
 	//digitalWrite(SHOT_PIN, true);
+	pinMode(LED_PIN, OUTPUT);
+	pinMode(SHOT_PIN, OUTPUT);
+	pinMode(PRESHOT_PIN, OUTPUT);
+	pinMode(L_ENA_PIN, OUTPUT);
+	pinMode(R_ENA_PIN, OUTPUT);
 
 	if( OMEEPROM::saved() )
 		loadEEPROM();
 	else
 		saveDefaultEEPROM();
-	digitalWrite(SHOT_PIN, !shotInv);
+	//digitalWrite(SHOT_PIN, !shotInv);
 
 	Serial.begin(57600);
 	//Serial.begin(115200);
@@ -661,9 +765,6 @@ void setup() {
 	Menu.setExitHandler(uiMain);
 	Menu.enable(true);
 
-	pinMode(LED_PIN, OUTPUT);
-	pinMode(SHOT_PIN, OUTPUT);
-
 	//pinMode(R_PUL_PIN, OUTPUT);
 	//pinMode(R_DIR_PIN, OUTPUT);
 	//pinMode(L_PUL_PIN, OUTPUT);
@@ -681,6 +782,7 @@ bool getInstrumentControl(bool a, byte mode) {
 	return false;
 }
 
+/*
 double analogRead(int pin, int samples){
   int result = 0;
   for(int i=0; i<samples; i++){
@@ -688,6 +790,7 @@ double analogRead(int pin, int samples){
   }
   return (double)(result / samples);
 }
+*/
 
 void setPosInit() {
 	//leftPuls = 0;
@@ -756,6 +859,7 @@ void gotoPosInit() {
 void loop() {
 	//wdt_reset();
 
+	/*
 	if(stepperL.currentPosition() >= lMax || stepperL.currentPosition() <= lMin) {
 		stepperL.setAcceleration(100000000.0);
 		stepperL.stop();
@@ -768,9 +872,9 @@ void loop() {
 		while(stepperR.runSpeed());
 		stepperR.setAcceleration(pulAcceleration);
 	}
+	*/
 
-	stepperL.run();
-	stepperR.run();
+	steppersRun();
 
 	if(millis() - lastMillis > 1000) {
 		lastMillis = millis();
@@ -815,10 +919,10 @@ void loop() {
 	Menu.checkInput();
 
 	if(state == STATE_RUNNING) {
-		if(stopsCounter == 0) {
+		if(stopsCounter == 0 && stopsCounter2 == 0) {
 			gotoPosLR(l0, r0);
 		}
-		if(!stepperL.run() && !stepperR.run()) {
+		if(!stepperL.isRunning() && !stepperR.isRunning()) {
 			if(shotState == 0) {
 				preShotMillis = millis();
 				shotState = 1;
@@ -827,8 +931,7 @@ void loop() {
 				Serial.println(stepperL.currentPosition());
 				Serial.print("R: ");
 				Serial.println(stepperR.currentPosition());
-				Serial.print("preShot: ");
-				Serial.println(stopsCounter);
+				Serial.println("preShot");
 			}
 			if(millis() - preShotMillis >= preShotTime) {
 				if(shotState == 1) {
@@ -836,33 +939,103 @@ void loop() {
 					shotState = 2;
 
 					Serial.print("shot: ");
-					Serial.println(stopsCounter);
+					Serial.print(stopsCounter);
+					Serial.print(" x ");
+					Serial.println(stopsCounter2);
 				}
 				if(millis() - shotMillis >= shotTime) {
 					if(shotState == 2) {
 						postShotMillis = millis();
 						shotState = 3;
 
-						Serial.print("postShot: ");
-						Serial.println(stopsCounter);
+						Serial.println("postShot");
 					}
 					if(millis() - postShotMillis >= postShotTime) {
 						shotState = 0;
-						stopsCounter++;
 
-						Serial.print("nextShot: ");
-						Serial.println(stopsCounter);
+						Serial.println("nextShot");
+						//Serial.println(stopsCounter);
+						long nextLeftStop, nextRightStop;
 
-						if(stops > 0) {
-							long nextLeftStop = ((l1 - l0) / (stops + 1)) * stopsCounter + l0;
-							long nextRightStop = ((r1 - r0) / (stops + 1)) * stopsCounter + r0;
-							gotoPosLR(nextLeftStop, nextRightStop);
+						//if(overlayMode == 0) {
+						if(abs(stops2) < 1) {
+							stopsCounter++;
+							//if(stopsCounter > stops + 1) {
+							if(stopsCounter >= stops) {
+								state = STATE_DONE;
+								stopsCounter = 0;
+								nextLeftStop = 0;
+								nextRightStop = 0;
+							}
+							else {
+								nextLeftStop = ((l1 - l0) / (stops - 1)) * stopsCounter + l0;
+								nextRightStop = ((r1 - r0) / (stops - 1)) * stopsCounter + r0;
+							}
 						}
-						if(stopsCounter > stops + 1) {
+
+						//if(overlayMode == 1) {
+						if(abs(stops2) > 0) {
+							stopsCounter++;
+
+							//if(stopsCounter > stops + 1) {
+							if(stopsCounter >= stops) {
+									stopsCounter = 0;
+									stopsCounter2++;
+							}
+							if(stops2 > 0 ) {
+								nextLeftStop = ((l1 - l0) / (stops - 1)) * stopsCounter + l0;
+								nextRightStop = ((r1 - r0) / (stops2 - 1)) * stopsCounter2 + r0;
+							}
+							else {
+								nextLeftStop = ((l1 - l0) / (-stops2 - 1)) * stopsCounter2 + l0;
+								nextRightStop = ((r1 - r0) / (stops - 1)) * stopsCounter + r0;
+							}
+						}
+
+						//if(stopsCounter2 > stops2 + 1) {
+						if(stopsCounter2 >= abs(stops2)) {
 							state = STATE_DONE;
 							stopsCounter = 0;
-							gotoPosInit();
+							stopsCounter2 = 0;
+							nextLeftStop = 0;
+							nextRightStop = 0;
 						}
+/*
+						if(stops2 < -1) {
+							stopsCounter++;
+
+							if(stopsCounter > stops) {
+									stopsCounter = 0;
+									stopsCounter2++;
+							}
+							nextLeftStop = ((l1 - l0) / (-stops2 - 1)) * stopsCounter2 + l0;
+							nextRightStop = ((r1 - r0) / (stops - 1)) * stopsCounter + r0;
+						}
+
+						//if(stopsCounter2 > stops2 + 1) {
+						if(stopsCounter2 > abs(stops2)) {
+							state = STATE_DONE;
+							stopsCounter = 0;
+							stopsCounter2 = 0;
+							nextLeftStop = 0;
+							nextRightStop = 0;
+						}
+*/
+						//Serial.print("leftStep: ");
+						//Serial.println((l1 - l0) / (stops + 1));
+						//Serial.print("leftOffset: ");
+						//Serial.println(l0);
+						//Serial.print("rightStep: ");
+						//Serial.println((r1 - r0) / (stops2 + 1));
+						//Serial.print("rightOffset: ");
+						//Serial.println(r0);
+
+						//Serial.println(stops);
+						gotoPosLR(nextLeftStop, nextRightStop);
+						Serial.print("nextLeftShot: ");
+						Serial.println(nextLeftStop);
+						Serial.print("nextRightShot: ");
+						Serial.println(nextRightStop);
 					}
 				}
 			}
@@ -871,11 +1044,15 @@ void loop() {
 	else {
 		shotState = 0;
 	}
+	preShotAuto = shotState == 1;
 	shotAuto = shotState == 2;
 
 	//////////////////////////////////
 	// outputs
 	//////////////////////////////////
+
+	preShotControl = getInstrumentControl(preShotAuto, preShotMode);
+	digitalWrite(PRESHOT_PIN, preShotInv? preShotControl : !preShotControl);
 
 	shotControl = getInstrumentControl(shotAuto, shotMode);
 	digitalWrite(SHOT_PIN, shotInv? shotControl : !shotControl);
@@ -991,32 +1168,7 @@ void loop() {
   			loadEEPROM();
   		}
 
-  		/*
-  		pos = text.indexOf(MESSAGE_CMD_SETX);
-  		if (pos >= 0) {
-  			xComm = text.substring(pos + strlen(MESSAGE_CMD_SETX)).toInt();
-  		}
-  		pos = text.indexOf(MESSAGE_CMD_SETY);
-  		if (pos >= 0) {
-  			yComm = text.substring(pos + strlen(MESSAGE_CMD_SETY)).toInt();
-  		}
-		pos = text.indexOf(MESSAGE_CMD_GO);
-		if (pos >= 0) {
-			//servoPrintPos = zComm;
-			//servo.write(servoPrintPos);
-			//vpGoToXY(xComm, yComm);
-
-			Serial.println(xComm);
-			Serial.println(yComm);
-			Serial.println(zComm);
-
-			//Serial1.println(xComm);
-			//Serial1.println(yComm);
-			//Serial1.println(zComm);
-		}
-		*/
-
-  		pos = text.indexOf(MESSAGE_CMD_SETZ);
+   		pos = text.indexOf(MESSAGE_CMD_SETZ);
 		if (pos >= 0) {
 			zComm = text.substring(pos + strlen(MESSAGE_CMD_SETZ)).toInt();
 		}
@@ -1035,110 +1187,14 @@ void loop() {
 			Serial.println(rComm);
 			Serial.println(lComm);
 			Serial.println(zComm);
-
-			//Serial1.println(rComm);
-			//Serial1.println(lComm);
-			//Serial1.println(zComm);
 		}
-
-		/*
-		//https://github.com/euphy/polargraph/wiki/Polargraph-machine-commands-and-responses
-		pos = max(text.indexOf(MESSAGE_PG_C01), text.indexOf(MESSAGE_PG_C17));
-		if (pos >= 0) {
-			//lComm = text.substring(pos + strlen(MESSAGE_PG_C01+1)).toInt();
-			//String s = text.substring(pos + strlen(MESSAGE_PG_C01) + 1);
-			//lComm = s.toInt();
-			//text.substring(pos + strlen(MESSAGE_PG_C01) + 1 + s.length() + 1);
-			lComm = text.substring(pos + strlen(MESSAGE_PG_C01) + 1).toInt();
-			//Serial.println(text.substring(pos + strlen(MESSAGE_PG_C01) + 1));
-			//text.indexOf(pos + strlen(MESSAGE_PG_C01) + 1, ',');
-			rComm = text.substring(text.indexOf(',', pos + strlen(MESSAGE_PG_C01) + 1) + 1).toInt();
-			//Serial.println(text.substring(text.indexOf(',', pos + strlen(MESSAGE_PG_C01) + 1)+1));
-			//rComm = text.substring(pos + strlen(MESSAGE_PG_C01) + 1 + lComm/10 + 1).toInt();
-			//Serial.println(lComm);
-			//Serial.println(rComm);
-			gotoPosLR(lComm, rComm);
-			//Serial.println(READY_STR);
-		}
-		pos = text.indexOf(MESSAGE_PG_C13);
-		if (pos >= 0) {
-			//servoPrintPos = servoPrintOnPos;
-			//servo.write(servoPrintPos);
-			//delay(servoPrintDelay);
-			//Serial.println(READY_STR);
-		}
-		pos = text.indexOf(MESSAGE_PG_C14);
-		if (pos >= 0) {
-			//servoPrintPos = servoPrintOffPos;
-			//servo.write(servoPrintPos);
-			//delay(servoPrintDelay);
-			//Serial.println(READY_STR);
-		}
-
-		if(max(leftPuls, rightPuls)==0) {
-			Serial.println(READY_STR);
-		}
-
-		pos = text.indexOf(MESSAGE_PG_C09);
-		if (pos >= 0) {
-			vpScrollTo(leftInitLength, rightInitLength);
-		}
-		*/
-
-
 		if (text.indexOf(MESSAGE_CMD_REQUEST)!=-1 ) {
-
 			//Serial.println(max(leftPuls, rightPuls));
 			Serial.println(max(stepperL.distanceToGo(), stepperR.distanceToGo()));
 			//Serial1.println(max(leftPuls, rightPuls));
-
-			/*
-			Serial.println();
-
-			rightDirControl = getInstrumentControl(rightDirAuto, rightDirMode);
-			rightDirControl = getInstrumentControl(rightDirAuto, rightDirMode);
-			leftPulControl = getInstrumentControl(leftPulAuto, leftPulMode);
-
-			Serial.print(MESSAGE_LIGHT_CONTROL);
-			rightDirControl ? Serial.print('1') : Serial.print('0');
-			rightDirMode ? Serial.println('M') : Serial.println('A');
-			Serial.print(MESSAGE_FAN_CONTROL);
-			rightDirControl ? Serial.print('1') : Serial.print('0');
-			rightDirMode ? Serial.println('M') : Serial.println('A');
-			Serial.print(MESSAGE_CYCLER_CONTROL);
-			leftPulControl ? Serial.print('1') : Serial.print('0');
-			leftPulMode ? Serial.println('M') : Serial.println('A');
-			Serial.println();
-
-  			Serial.print(MESSAGE_TEMP);
-  			Serial.println(temperature);
-  			Serial.print(MESSAGE_EXT);
-  			//Serial.print(digitalRead(EXT_PIN));
-  			Serial.println(external);
-  			Serial.print(MESSAGE_POWER);
-  			Serial.println(power);
-
-  			Serial.print(MESSAGE_GSM);
-  			Serial.print(gsmMode);
-  			Serial.print(' ');
-  			Serial.print(gsmNumber);
-  			Serial.print(' ');
-  			Serial.print(gsmCode);
-
-  			Serial.println();
-  			Serial.println();
-
-  			Serial.println();
-  			char msg[MESSAGELENGTH + 1];
-  			for(int i = 0; i< MESSAGESCOUNT; i++) {
-  				readMessage(i, (byte*)msg);
-  				Serial.println(msg);
-  			}
-			*/
   			//Serial.println();
   			//Serial.println();
    		}
-
 	}
 }
 
@@ -1191,7 +1247,8 @@ void uiMovePause() {
 void uiMoveStop() {
 	uiOK();
 	shotAuto = false;
-	stopsCounter = 0l;
+	stopsCounter = 0;
+	stopsCounter2 = 0;
 	state = STATE_STOPPED;
 	return;
 	//Menu.enable(false);
@@ -1225,10 +1282,10 @@ void uiControl() {
 	lcd.clear();
 	lcd.setCursor(0, 0);
 			  //"0123456789ABCDEF"
-	lcd.print(F("Z[*] S[C] F[D] #ESC"));
+	lcd.print(F("Z[C] S[A] F[B] #ESC"));
 	lcd.setCursor(0, 1);
 			  //"0123456789ABCDEF"
-	lcd.print(F("1U 2D  0P  3D AU"));
+	lcd.print(F("^2-5_ <4-6>  0-S"));
 }
 
 void uiInfo() {
@@ -1287,19 +1344,20 @@ void uiScreen() {
 	}
 
 	if(uiState == UISTATE_CONTROL) {
-		if(key == KPD_ENTER) {
+		//if(key == KPD_ENTER) {
+		if(key == 'C') {
 			uiOK();
 			setPosInit();
 			uiState = UISTATE_MAIN;
 			Menu.enable(true);
 		}
-		if(key == 'C') {
+		if(key == 'A') {
 			uiOK();
 			setPosLR0();
 			uiState = UISTATE_MAIN;
 			Menu.enable(true);
 		}
-		if(key == 'D') {
+		if(key == 'B') {
 			uiOK();
 			setPosLR1();
 			uiState = UISTATE_MAIN;
@@ -1315,7 +1373,7 @@ void uiScreen() {
 			uiPage++;
 		}
 		uiPage = max(0, uiPage);
-		uiPage = min(7, uiPage);
+		uiPage = min(5, uiPage);
 
 		if(uiPage == 0) {
 			//TODO: once per ?
@@ -1336,8 +1394,12 @@ void uiScreen() {
 			    lcd.setCursor(0, 1);
 				lcd.print(stopsCounter);
 				lcd.print('/');
-				lcd.print(stops + 2);
+				lcd.print(stops);
 			    uiLcdPrintSpaces8();
+			    lcd.setCursor(8, 1);
+				lcd.print(stopsCounter2);
+				lcd.print('/');
+				lcd.print(stops2);
 			    uiLcdPrintSpaces8();
 			}
 			else if(state == STATE_DONE ) {
@@ -1372,8 +1434,32 @@ void uiScreen() {
 		    //uiLcdPrintSpaces8();
 		    uiLcdPrintSpaces8();
 		}
-
 		if(uiPage == 2) {
+			lcd.setCursor(0, 0);
+			//lcd.print(leftPuls);
+			lcd.print(F("L[deg]:"));
+			lcd.print(stepperL.currentPosition() / lScale);
+			uiLcdPrintSpaces8();
+			uiLcdPrintSpaces8();
+			lcd.setCursor(0, 1);
+			//lcd.print(leftPulsPos);
+			lcd.print(F("R[deg]:"));
+			lcd.print(stepperR.currentPosition() / rScale);
+			uiLcdPrintSpaces8();
+			//lcd.setCursor(10, 1);
+			//lcd.print(F("/"));
+			//lcd.print(rightPulsPos);
+			//lcd.print(stepperR.distanceToGo());
+			//uiLcdPrintSpaces8();
+			uiLcdPrintSpaces8();
+
+			//Serial.println(stepperL.currentPosition());
+			//Serial.println(lScale);
+			//Serial.println(stepperL.currentPosition() / lScale);
+			//Serial.println();
+
+		}
+		if(uiPage == 3) {
 			if(false) {
 				secToggle ? lcd.backlight() : lcd.noBacklight();
 			}
@@ -1397,7 +1483,7 @@ void uiScreen() {
 			lcd.print("RD");
 			uiInstrument(rightDirControl, rightDirMode);
 		}
-		if(uiPage == 3) {
+		if(uiPage == 4) {
 		    lcd.setCursor(0, 0);
 			lcd.print(F("L0[st]:"));
 			lcd.print(l0);
@@ -1409,7 +1495,7 @@ void uiScreen() {
 			uiLcdPrintSpaces8();
 			uiLcdPrintSpaces8();
 		}
-		if(uiPage == 4) {
+		if(uiPage == 5) {
 			lcd.setCursor(0, 0);
 			lcd.print(F("L1[st]:"));
 			lcd.print(l1);
@@ -1421,7 +1507,8 @@ void uiScreen() {
 			uiLcdPrintSpaces8();
 			uiLcdPrintSpaces8();
 		}
-		if(uiPage == 5) {
+		/*
+		if(uiPage == 6) {
 		    lcd.setCursor(0, 0);
 			lcd.print(F("SPEED[st/s]:"));
 			lcd.print(pulSpeed);
@@ -1431,7 +1518,7 @@ void uiScreen() {
 			lcd.print(pulAcceleration);
 			uiLcdPrintSpaces8();
 		}
-		if(uiPage == 6) {
+		if(uiPage == 7) {
 		    lcd.setCursor(0, 0);
 			lcd.print(F("PRE[ms]:"));
 			lcd.print(preShotTime);
@@ -1441,7 +1528,7 @@ void uiScreen() {
 			lcd.print(postShotTime);
 			uiLcdPrintSpaces8();
 		}
-		if(uiPage == 7) {
+		if(uiPage == 8) {
 		    lcd.setCursor(0, 0);
 			lcd.print(F("SHOT[ms]:"));
 			lcd.print(shotTime);
@@ -1450,6 +1537,7 @@ void uiScreen() {
 			uiLcdPrintSpaces8();
 			uiLcdPrintSpaces8();
 		}
+		*/
 	}
 	/*
 	if(uiState == UISTATE_EDITTEXT) {
@@ -1497,8 +1585,7 @@ void uiScreen() {
 
 void uiLcdPrintSpaces8() {
 	lcd.print(F("        "));
-	stepperL.run();
-	stepperR.run();
+	steppersRun();
 }
 
 void uiMain() {
