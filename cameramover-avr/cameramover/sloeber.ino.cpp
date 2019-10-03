@@ -2,7 +2,7 @@
 //This is a automatic generated file
 //Please do not modify this file
 //If you touch this file your change will be overwritten during the next build
-//This file has been generated on 2019-10-02 21:57:32
+//This file has been generated on 2019-10-03 14:53:01
 
 #include "Arduino.h"
 #include "Arduino.h"
@@ -47,9 +47,11 @@ extern AccelStepper stepperR;
 #define RMAX_ADDR			72
 #define LSCALE_ADDR			76
 #define RSCALE_ADDR			80
-#define LENAINV_ADDR		92
-#define RENAINV_ADDR		96
 #define STOPS2_ADDR			84
+#define LNEXT_ADDR			88
+#define RNEXT_ADDR			92
+#define LENAINV_ADDR		96
+#define RENAINV_ADDR		97
 #define MESSAGE_CMD_REQUEST  		"?"
 #define MESSAGE_CMD_PARREADINT 		"#PRI"
 #define MESSAGE_CMD_PARREADFLOAT 	"#PRF"
@@ -92,6 +94,7 @@ extern unsigned int pulSpeed;
 extern long l0;
 extern unsigned int pulSpeedPrev;
 extern long lScale;
+extern long lNext;
 extern int shotState;
 #include "LiquidCrystal_I2C.h"
 extern LiquidCrystal_I2C lcd;
@@ -118,7 +121,6 @@ void setPosInit() ;
 void setPosLR0() ;
 void setPosLR1() ;
 void gotoPosLR(long l, long r) ;
-void gotoPosInit() ;
 void loop() ;
 void uiOK();
 void uiResetAction() ;

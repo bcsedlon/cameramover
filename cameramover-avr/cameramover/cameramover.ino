@@ -62,11 +62,14 @@ AccelStepper stepperR(AccelStepper::DRIVER, R_PUL_PIN, R_DIR_PIN);
 #define RMAX_ADDR			72
 #define LSCALE_ADDR			76
 #define RSCALE_ADDR			80
-//#define LANGLE_ADDR			84
-//#define RANGLE_ADDR			88
-#define LENAINV_ADDR		92
-#define RENAINV_ADDR		96
 #define STOPS2_ADDR			84
+#define LNEXT_ADDR			88
+#define RNEXT_ADDR			92
+#define LENAINV_ADDR		96	//byte
+#define RENAINV_ADDR		97	//byte
+//#define SPAREBYTE_ADDR		98
+//#define SPAREBYTE_ADDR		99
+
 //#define OVERLAYMODE_ADDR	104
 
 #define MESSAGE_CMD_REQUEST  		"?"
@@ -162,6 +165,7 @@ long l0, r0, l1, r1, lMax, lMin, rMax, rMin;
 unsigned int pulSpeedPrev;
 
 long lScale, rScale;
+long lNext, rNext;
 //long lAngle, rAngle, overlay;
 //byte overlayMode;
 
@@ -519,13 +523,13 @@ MENU_VALUE r1_value = {TYPE_LONG, 0, 0, MENU_TARGET(&r1),R1_ADDR };
 MENU_ITEM r1_item =				{{"R1[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&r1_value) };
 
 MENU_VALUE lmin_value = {TYPE_LONG, 0, 0, MENU_TARGET(&lMin), LMIN_ADDR};
-MENU_ITEM lmin_item = 			{{"LMIN[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&lmin_value)};
+MENU_ITEM lmin_item = 			{{"L MIN[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&lmin_value)};
 MENU_VALUE rmin_value = {TYPE_LONG, 0, 0, MENU_TARGET(&rMin),RMIN_ADDR};
-MENU_ITEM rmin_item =				{{"RMIN[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&rmin_value)};
+MENU_ITEM rmin_item =			{{"R MIN[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&rmin_value)};
 MENU_VALUE lmax_value = {TYPE_LONG, 0, 0, MENU_TARGET(&lMax), LMAX_ADDR};
-MENU_ITEM lmax_item = 			{{"LMAX[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&lmax_value) };
+MENU_ITEM lmax_item = 			{{"L MAX[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&lmax_value) };
 MENU_VALUE rmax_value = {TYPE_LONG, 0, 0, MENU_TARGET(&rMax),RMAX_ADDR };
-MENU_ITEM rmax_item =				{{"RMAX[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&rmax_value) };
+MENU_ITEM rmax_item =			{{"R MAX[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&rmax_value) };
 
 MENU_VALUE speed_value = {TYPE_UINT, 0, 0, MENU_TARGET(&pulSpeed), SPEED_ADDR};
 MENU_ITEM speed_item = 			{{"MAX SPEED[st/s]"}, ITEM_VALUE, 0, MENU_TARGET(&speed_value)};
@@ -540,27 +544,28 @@ MENU_VALUE postShotTime_value = {TYPE_UINT, 0, 0, MENU_TARGET(&postShotTime), PO
 MENU_ITEM postShotTime_item = 	{{"POST SHOT T[ms]"}, ITEM_VALUE, 0, MENU_TARGET(&postShotTime_value)};
 
 MENU_VALUE rightDirInv_value = {TYPE_BYTE, 1, 0, MENU_TARGET(&rightDirInv), RDIRINV_ADDR};
-MENU_ITEM rightDirInv_item = 	{{"RIGHT DIR INV"}, ITEM_VALUE, 0, MENU_TARGET(&rightDirInv_value)};
+MENU_ITEM rightDirInv_item = 	{{"R DIR INV"}, ITEM_VALUE, 0, MENU_TARGET(&rightDirInv_value)};
 MENU_VALUE leftDirInv_value = {TYPE_BYTE, 1, 0, MENU_TARGET(&leftDirInv), LDIRINV_ADDR};
-MENU_ITEM leftDirInv_item  = 	{{"LEFT DIR INV"}, ITEM_VALUE, 0, MENU_TARGET(&leftDirInv_value)};
+MENU_ITEM leftDirInv_item  = 	{{"L DIR INV"}, ITEM_VALUE, 0, MENU_TARGET(&leftDirInv_value)};
 MENU_VALUE shotInv_value = {TYPE_BYTE, 1, 0, MENU_TARGET(&shotInv), SHOTINV_ADDR};
 MENU_ITEM shotInv_item = 		{{"SHOT INVERSION"}, ITEM_VALUE, 0, MENU_TARGET(&shotInv_value) };
 
 MENU_VALUE leftEnaInv_value = {TYPE_BYTE, 1, 0, MENU_TARGET(&leftEnaInv), LENAINV_ADDR};
-MENU_ITEM leftEnaInv_item = 	{{"LEFT ENA INV"}, ITEM_VALUE, 0, MENU_TARGET(&leftEnaInv_value) };
+MENU_ITEM leftEnaInv_item = 	{{"L ENA INV"}, ITEM_VALUE, 0, MENU_TARGET(&leftEnaInv_value) };
 MENU_VALUE rightEnaInv_value = {TYPE_BYTE, 1, 0, MENU_TARGET(&rightEnaInv), RENAINV_ADDR};
-MENU_ITEM rightEnaInv_item = 	{{"RIGHT ENA INV"}, ITEM_VALUE, 0, MENU_TARGET(&rightEnaInv_value) };
+MENU_ITEM rightEnaInv_item = 	{{"R ENA INV"}, ITEM_VALUE, 0, MENU_TARGET(&rightEnaInv_value) };
 
 MENU_VALUE lscale_value = {TYPE_LONG, 0, 0, MENU_TARGET(&lScale), LSCALE_ADDR};
-MENU_ITEM lscale_item = 		{{"LSCALE[st/deg]"}, ITEM_VALUE, 0, MENU_TARGET(&lscale_value)};
+MENU_ITEM lscale_item = 		{{"L SCALE[st/deg]"}, ITEM_VALUE, 0, MENU_TARGET(&lscale_value)};
 MENU_VALUE rscale_value = {TYPE_LONG, 0, 0, MENU_TARGET(&rScale),RSCALE_ADDR};
-MENU_ITEM rscale_item =			{{"RSCALE[st/deg]"}, ITEM_VALUE, 0, MENU_TARGET(&rscale_value)};
+MENU_ITEM rscale_item =			{{"R SCALE[st/deg]"}, ITEM_VALUE, 0, MENU_TARGET(&rscale_value)};
 
+
+MENU_VALUE lnext_value = {TYPE_LONG, 0, 0, MENU_TARGET(&lNext), LNEXT_ADDR};
+MENU_ITEM lnext_item = 			{{"L NEXT[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&lnext_value) };
+MENU_VALUE rnext_value = {TYPE_LONG, 0, 0, MENU_TARGET(&rNext),RNEXT_ADDR };
+MENU_ITEM rnext_item =			{{"R NEXT[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&rnext_value) };
 /*
-MENU_VALUE langle_value = {TYPE_LONG, 0, 0, MENU_TARGET(&lAngle), LANGLE_ADDR};
-MENU_ITEM langle_item = 		{{"LANGEL[deg]"}, ITEM_VALUE, 0, MENU_TARGET(&langle_value) };
-MENU_VALUE rangle_value = {TYPE_LONG, 0, 0, MENU_TARGET(&rAngle),RANGLE_ADDR };
-MENU_ITEM rangle_item =			{{"RANGEL[deg]"}, ITEM_VALUE, 0, MENU_TARGET(&rangle_value) };
 MENU_VALUE overlayMode_value = {TYPE_UINT, 0, 0, MENU_TARGET(&overlayMode), OVERLAYMODE_ADDR};
 MENU_ITEM overlayMode_item = 	{{"OVERLAY MODE"}, ITEM_VALUE, 0, MENU_TARGET(&overlayMode_value)};
 */
@@ -568,7 +573,7 @@ MENU_ITEM overlayMode_item = 	{{"OVERLAY MODE"}, ITEM_VALUE, 0, MENU_TARGET(&ove
 MENU_ITEM item_reset = 			{{"RESET DEFAULTS!"}, ITEM_ACTION, 0, MENU_TARGET(&uiResetAction) };
 //MENU_ITEM item_info   = { {"INFO->"},  ITEM_ACTION, 0,        MENU_TARGET(&uiInfo) };
 
-MENU_LIST const submenu_list5[] = {&stops_item, &stops2_item, &speed_item, &acceleration_item, &l0_item, &r0_item, &l1_item, &r1_item, &preShotTime_item, &shotTime_item, &postShotTime_item, &leftDirInv_item, &leftEnaInv_item, &rightDirInv_item, &rightEnaInv_item, &shotInv_item, &shotMode_item, &lmin_item, &rmin_item, &lmax_item, &rmax_item, &lscale_item, &rscale_item, &item_reset}; //&langle_item, &rangle_item, &overlayMode_item,
+MENU_LIST const submenu_list5[] = {&stops_item, &stops2_item, &lnext_item, &rnext_item, &speed_item, &acceleration_item, &l0_item, &r0_item, &l1_item, &r1_item, &preShotTime_item, &shotTime_item, &postShotTime_item, &leftDirInv_item, &leftEnaInv_item, &rightDirInv_item, &rightEnaInv_item, &shotInv_item, &shotMode_item, &lmin_item, &rmin_item, &lmax_item, &rmax_item, &lscale_item, &rscale_item, &item_reset}; //&langle_item, &rangle_item, &overlayMode_item,
 MENU_ITEM menu_submenu5 = 		{{"SETTINGS->"}, ITEM_MENU, MENU_SIZE(submenu_list5), MENU_TARGET(&submenu_list5)};
 
 MENU_ITEM item_control = 		{{"CALIBRATION"}, ITEM_ACTION, 0, MENU_TARGET(&uiControl)};
@@ -628,12 +633,13 @@ void loadEEPROM() {
     read(RMAX_ADDR, rMax);
     read(LSCALE_ADDR, lScale);
     read(RSCALE_ADDR, rScale);
-    //read(LANGLE_ADDR, lAngle);
-    //read(RANGLE_ADDR, rAngle);
     read(LENAINV_ADDR, leftEnaInv);
     read(RENAINV_ADDR, rightEnaInv);
     //read(OVERLAYMODE_ADDR, overlayMode);
     read(STOPS2_ADDR, stops2);
+    read(LNEXT_ADDR, lNext);
+    read(RNEXT_ADDR, rNext);
+
 }
 
 void saveDefaultEEPROM() {
@@ -661,6 +667,8 @@ void saveDefaultEEPROM() {
 	//rAngle = 30;
 	//overlayMode = 1;
 	stops2 = 0;
+	lNext = 100;
+	rNext = 100;
 
     using namespace OMEEPROM;
     write(SHOTMODE_ADDR, shotMode);
@@ -683,12 +691,12 @@ void saveDefaultEEPROM() {
     write(RMAX_ADDR, rMax);
     write(LSCALE_ADDR, lScale);
     write(RSCALE_ADDR, rScale);
-    //write(LANGLE_ADDR, lAngle);
-    //write(RANGLE_ADDR, rAngle);
     write(LENAINV_ADDR, leftEnaInv);
     write(RENAINV_ADDR, rightEnaInv);
     //write(OVERLAYMODE_ADDR, overlayMode);
     write(STOPS2_ADDR, stops2);
+    write(LNEXT_ADDR, lNext);
+    write(RNEXT_ADDR, rNext);
 }
 
 void setSteppers() {
@@ -711,8 +719,6 @@ void setup() {
 	//pinMode(SHOT_PIN, OUTPUT);
 	//digitalWrite(SHOT_PIN, true);
 	pinMode(LED_PIN, OUTPUT);
-	pinMode(SHOT_PIN, OUTPUT);
-	pinMode(PRESHOT_PIN, OUTPUT);
 	pinMode(L_ENA_PIN, OUTPUT);
 	pinMode(R_ENA_PIN, OUTPUT);
 
@@ -720,7 +726,10 @@ void setup() {
 		loadEEPROM();
 	else
 		saveDefaultEEPROM();
-	//digitalWrite(SHOT_PIN, !shotInv);
+	digitalWrite(SHOT_PIN, !shotInv);
+	digitalWrite(PRESHOT_PIN, !preShotInv);
+	pinMode(SHOT_PIN, OUTPUT);
+	pinMode(PRESHOT_PIN, OUTPUT);
 
 	Serial.begin(57600);
 	//Serial.begin(115200);
@@ -847,32 +856,12 @@ void gotoPosLR(long l, long r) {
 	 */
 }
 
-void gotoPosInit() {
-	gotoPosLR(0, 0);
-}
-
-
 //////////////////////////////////
 // main loop
 //////////////////////////////////
 
 void loop() {
 	//wdt_reset();
-
-	/*
-	if(stepperL.currentPosition() >= lMax || stepperL.currentPosition() <= lMin) {
-		stepperL.setAcceleration(100000000.0);
-		stepperL.stop();
-		while(stepperL.runSpeed());
-		stepperL.setAcceleration(pulAcceleration);
-	}
-	if(stepperR.currentPosition() >= rMax || stepperR.currentPosition() >= rMin) {
-		stepperR.setAcceleration(100000000.0);
-		stepperR.stop();
-		while(stepperR.runSpeed());
-		stepperR.setAcceleration(pulAcceleration);
-	}
-	*/
 
 	steppersRun();
 
@@ -889,12 +878,12 @@ void loop() {
 		setSteppers();
 	}
 
-	if (!Menu.shown()) {
-		if(!uiState) {
-			//TODO: refresh display
-			//uiMain();
-		}
-	}
+	//if (!Menu.shown()) {
+	//	if(!uiState) {
+	//		//TODO: refresh display
+	//		//uiMain();
+	//	}
+	//}
 
 	char key = kpd.getKey2();
 	if(key == '#') {
@@ -919,6 +908,24 @@ void loop() {
 	Menu.checkInput();
 
 	if(state == STATE_RUNNING) {
+		if(stops == 0) {
+			long l = (l1 - l0) / lNext;
+			//l += ((l1 - l0) % lNext) ? 1 : 0;
+			long r = (r1 - r0) / rNext;
+			//r += ((r1 - r0) % rNext) ? 1 : 0;
+			if(stops2 > 0) {
+				stops = l;
+				stops2 = r;
+			}
+			else {
+				stops2 = l;
+				stops = r;
+			}
+			Serial.print(stops);
+			Serial.print(" x ");
+			Serial.println(stops2);
+		}
+
 		if(stopsCounter == 0 && stopsCounter2 == 0) {
 			gotoPosLR(l0, r0);
 		}
@@ -1129,7 +1136,7 @@ void loop() {
 	//////////////////////////////////
 	// communication
 	//////////////////////////////////
-
+#ifdef COMM
 	String text;
   	if (Serial.available() > 0) {
   		text = Serial.readString();
@@ -1196,6 +1203,7 @@ void loop() {
   			//Serial.println();
    		}
 	}
+#endif
 }
 
 void uiOK(){
@@ -1285,7 +1293,7 @@ void uiControl() {
 	lcd.print(F("Z[C] S[A] F[B] #ESC"));
 	lcd.setCursor(0, 1);
 			  //"0123456789ABCDEF"
-	lcd.print(F("^2-5_ <4-6>  0-S"));
+	lcd.print(F("^2L5_ <4R6>  0-S"));
 }
 
 void uiInfo() {
@@ -1310,7 +1318,7 @@ void uiGotoPosLR1() {
 
 void uiGotoPosInit() {
 	uiOK();
-	gotoPosInit();
+	gotoPosLR(0, 0);
 }
 
 void uiScreen() {
