@@ -944,6 +944,9 @@ public:
 
     unsigned int holdModifier();
 
+    //bcsedlon
+    void OMMenuMgr::exitMenu();
+
 private:
 
     typedef void(*f_valueHandler)();

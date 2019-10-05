@@ -381,6 +381,10 @@ unsigned int OMMenuMgr::holdModifier() {
     return m_holdMod;
 }
 
+void OMMenuMgr::exitMenu() {
+	_exitMenu();
+}
+
 
 int OMMenuMgr::_checkAnalog() {
 

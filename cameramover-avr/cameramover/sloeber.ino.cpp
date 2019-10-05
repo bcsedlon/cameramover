@@ -2,7 +2,7 @@
 //This is a automatic generated file
 //Please do not modify this file
 //If you touch this file your change will be overwritten during the next build
-//This file has been generated on 2019-10-03 14:53:01
+//This file has been generated on 2019-10-05 23:10:21
 
 #include "Arduino.h"
 #include "Arduino.h"
@@ -11,7 +11,7 @@
 #include <AccelStepper.h>
 extern const byte KPD_ROWS;
 extern const byte KPD_COLS;
-#define KPD_I2CADDR 0x20
+#define KPD_I2CADDR 0x38
 #define OK_DELAY 500
 #define LCD_I2CADDR 0x27
 extern const byte LCD_ROWS;
@@ -76,6 +76,7 @@ extern AccelStepper stepperR;
 #define KPD_ENTER 	'*'
 #define KPD_ESC 	'0'
 extern byte state;
+extern byte shotState;
 extern bool stop;
 extern unsigned long lastMillis;
 extern byte secondsCounter;
@@ -86,16 +87,15 @@ extern unsigned long uiKeyMillis;
 extern unsigned long preShotMillis;
 extern long lComm;
 extern long stops;
+extern long lStops;
 extern byte preShotMode;
 extern bool preShotControl;
 extern bool preShotAuto;
 extern bool leftDirInv;
 extern unsigned int pulSpeed;
 extern long l0;
-extern unsigned int pulSpeedPrev;
 extern long lScale;
 extern long lNext;
-extern int shotState;
 #include "LiquidCrystal_I2C.h"
 extern LiquidCrystal_I2C lcd;
 #include "Keypad_I2C.h"
@@ -121,6 +121,7 @@ void setPosInit() ;
 void setPosLR0() ;
 void setPosLR1() ;
 void gotoPosLR(long l, long r) ;
+void calcStops() ;
 void loop() ;
 void uiOK();
 void uiResetAction() ;
