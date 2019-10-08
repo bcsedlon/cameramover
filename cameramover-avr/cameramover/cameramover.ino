@@ -67,13 +67,11 @@ AccelStepper stepperR(AccelStepper::DRIVER, R_PUL_PIN, R_DIR_PIN);
 #define RNEXT_ADDR			92
 #define LENAINV_ADDR		96	//byte
 #define RENAINV_ADDR		97	//byte
-//#define SPAREBYTE_ADDR		98
+#define PRESHOTINV_ADDR		98
 //#define SPAREBYTE_ADDR		99
 
-//#define OVERLAYMODE_ADDR	104
 
 #define MESSAGE_CMD_REQUEST  		"?"
-
 #define MESSAGE_CMD_PARREADINT 		"#PRI"
 #define MESSAGE_CMD_PARREADFLOAT 	"#PRF"
 #define MESSAGE_CMD_PARWRITEINT 	"#PWI"
@@ -83,7 +81,7 @@ AccelStepper stepperR(AccelStepper::DRIVER, R_PUL_PIN, R_DIR_PIN);
 #define MESSAGE_CMD_SETZ 		"Z"
 #define MESSAGE_CMD_SETL 		"L"
 #define MESSAGE_CMD_SETR 		"R"
-#define MESSAGE_CMD_SCROLL 		"S"
+#define MESSAGE_CMD_GO	 		"G"
 
 //#define MESSAGE_CMD_GO 		"G"
 //#define MESSAGE_CMD_SETX 		"X"
@@ -112,6 +110,7 @@ AccelStepper stepperR(AccelStepper::DRIVER, R_PUL_PIN, R_DIR_PIN);
 #define UISTATE_INFO 		3
 //#define UISTATE_EDITTEXT 	4
 #define UISTATE_CONTROL 	5
+#define UISTATE_CONTROL2 	6
 
 #define STATE_STOPPED 		0
 #define STATE_RUNNING 		1
@@ -142,35 +141,29 @@ bool secToggle = false;
 char uiKeyPressed = 0;
 int uiState, uiPage;
 unsigned long uiKeyMillis;
-
-//unsigned long cycles, cyclesPrev = 0;
+unsigned long uiScreenMillis;
 
 unsigned long preShotMillis, shotMillis, postShotMillis;
 //long leftPuls, rightPuls;
 //long leftPulsPos, rightPulsPos;
 long lComm, rComm, zComm;
-long stops, stops2; //, stopsCounter, stopsCounter2;
 long lStops, rStops, lStopsCounter, rStopsCounter;
 
 // control
-byte preShotMode, shotMode, rightDirMode, rightPulMode, leftPulMode, leftDirMode;
-bool preShotControl, shotControl, rightPulControl, rightDirControl, leftPulControl, leftDirControl;
-bool preShotAuto, shotAuto, rightPulAuto, rightDirAuto, leftPulAuto, leftDirAuto;
-bool leftDirInv, rightDirInv, preShotInv, shotInv, leftEnaInv, rightEnaInv;
+byte preShotMode, shotMode;//, rightDirMode, rightPulMode, leftPulMode, leftDirMode;
+bool preShotControl, shotControl;//, rightPulControl, rightDirControl, leftPulControl, leftDirControl;
+bool preShotAuto, shotAuto; //, rightPulAuto, rightDirAuto, leftPulAuto, leftDirAuto;
 
 //#define STEPS_ACC 16
 //int rightAcc, rightAccSkip, leftAcc, leftAccSkip;
 
 // parameters
+bool leftDirInv, rightDirInv, preShotInv, shotInv, leftEnaInv, rightEnaInv;
 unsigned int pulSpeed, pulAcceleration, preShotTime, shotTime, postShotTime;
-long l0, r0, l1, r1, lMax, lMin, rMax, rMin;
+long l0, r0, l1, r1, lMax, lMin, rMax, rMin, lScale, rScale, lNext, rNext;
+long stops, stops2;
+
 //unsigned int pulSpeedPrev;
-
-long lScale, rScale;
-long lNext, rNext;
-//long lSize, rSize, lStops, rSrops;
-//byte overlayMode;
-
 
 
 //int xComm, yComm, zComm;
@@ -314,27 +307,26 @@ public:
     char Keypad_I2C2::getKey2() {
     	getKeys();
     	if(bitMap[0] & 1) {
-    	    		if(bitMap[1] & 1) {
-    	    			stop = true;
-    	    			//lcd.noBacklight();
-    	    			lcd.clear();
-    	    			lcd.print(F("EMERGENCY STOP"));
-    	    			uiState = UISTATE_MAIN;
-    	    			//delay(1000);
-    	    			delayWithSteppersRun(OK_DELAY);
-    	    			//1 + A
-    	    		}
+			if(bitMap[1] & 1) {
+				//1 + A
+				stop = true;
+				//lcd.noBacklight();
+				lcd.clear();
+				lcd.print(F("EMERGENCY STOP"));
+				uiState = UISTATE_MAIN;
+				delayWithSteppersRun(OK_DELAY);
+			}
 
-    	    		if(bitMap[3] & 8) {
-    	    			stop = false;
-    	    			lcd.clear();
-    	    			lcd.print(F("EM STOP RESET"));
-    	    			//TODO watchdog test
-    	    			//lcd.clear();
-    	    			//lcd.print(F("WATCHDOG TEST"));
-    	    			//while(true) {};
-    	    			//1 + 3
-    	    		}
+			if(bitMap[3] & 8) {
+				//1 + 3
+				stop = false;
+				lcd.clear();
+				lcd.print(F("EM STOP RESET"));
+				//TODO watchdog test
+				//lcd.clear();
+				//lcd.print(F("WATCHDOG TEST"));
+				//while(true) {};
+			}
     	}
     	/*
     	//TODO !!! Dirty trick !!!
@@ -372,27 +364,15 @@ public:
 			if(bitMap[2] == 4) shotMode=1;
 			if(bitMap[1] == 4) shotMode=2;
 			if(bitMap[0] == 4) shotMode=0;
-
-			/*
-			if(bitMap[2] == 2) rightPulMode=1;
-			if(bitMap[1] == 2) rightPulMode=2;
-			if(bitMap[0] == 2) rightPulMode=0;
-
-			if(bitMap[2] == 1) rightDirMode=1;
-			if(bitMap[1] == 1) rightDirMode=2;
-			if(bitMap[0] == 1) rightDirMode=0;
-			*/
 		}
-		if((bitMap[3] == 2 || bitMap[3] == 2 + 4) || uiState == UISTATE_CONTROL) {
+		if((bitMap[3] == 2 || bitMap[3] == 2 + 4) || uiState == UISTATE_CONTROL || uiState == UISTATE_CONTROL2) {
 			//7 +
 			//TODO: move calibration
 			//if(bitMap[3] == 8 || bitMap[3] == 8 + 2) {
 			if(bitMap[2] == 4) {
-				//stepperL.move(10000);
 				stepperL.moveTo(min(lMax, stepperL.currentPosition() + 1000));
 			}
 			else if(bitMap[2] == 8) {
-				//stepperL.move(-10000);
 				stepperL.moveTo(max(lMin, stepperL.currentPosition() - 1000));
 			}
 			else {
@@ -401,18 +381,15 @@ public:
 					stepperL.stop();
 					while(stepperRunL());
 					stepperL.setAcceleration(pulAcceleration);
-					//stepperL.moveTo(stepperL.currentPosition());
 				}
 			}
 
 			//if(bitMap[1] == 8) {
 			if(bitMap[3] == 4 || bitMap[3] == 4 + 2) {
-				//stepperR.move(10000);
 				stepperR.moveTo(min(rMax, stepperR.currentPosition() + 1000));
 			}
 			//else if(bitMap[0] == 8) {
 			else if(bitMap[1] == 4) {
-				//stepperR.move(-10000);
 				stepperR.moveTo(max(rMin, stepperR.currentPosition() - 1000));
 			}
 			else {
@@ -421,7 +398,6 @@ public:
 					stepperR.stop();
 					while(stepperRunR());
 					stepperR.setAcceleration(pulAcceleration);
-					//stepperR.moveTo(stepperR.currentPosition());
 				}
 			}
 
@@ -437,8 +413,10 @@ public:
     		if(!keyMillis) {
     			keyMillis = millis();
     		}
-    		if((keyMillis + 500) > millis()){
-    			if((keyMillis + 200) < millis()) {
+    		//if((keyMillis + 500) > millis()){
+    		if(millis() - keyMillis < 500) {
+    			//if((keyMillis + 200) < millis()) {
+    			if(millis() - keyMillis > 200) {
     				return NO_KEY;
     			}
     		}
@@ -452,11 +430,9 @@ public:
 
 byte rowPins[KPD_ROWS] = {0, 1, 2, 3}; //connect to the row pinouts of the keypad
 byte colPins[KPD_COLS] = {4, 5, 6, 7}; //connect to the column pinouts of the keypad
-Keypad_I2C2 kpd( makeKeymap(keys), rowPins, colPins, KPD_ROWS, KPD_COLS, KPD_I2CADDR, PCF8574 );
+Keypad_I2C2 kpd(makeKeymap(keys), rowPins, colPins, KPD_ROWS, KPD_COLS, KPD_I2CADDR, PCF8574 );
 
 // Menu
-//#include "libraries/OMEEPROM/OMEEPROM.h"
-//#include "libraries/OMMenuMgr/OMMenuMgr.h"
 #include "OMEEPROM.h"
 #include "OMMenuMgr2.h"
 
@@ -473,47 +449,20 @@ public:
     	if(k == '#') return BUTTON_BACK;
     	if(k == '*') return BUTTON_SELECT;
     	return k;
-    	return BUTTON_NONE;
     }
 private:
     Keypad_I2C2* kpd;
 };
 
 // Create a list of states and values for a select input
-MENU_SELECT_ITEM  sel_auto =	{0, {"AUTO!"}};
-MENU_SELECT_ITEM  sel_off =		{1, {"OFF!"}};
-MENU_SELECT_ITEM  sel_on  = 	{2, {"ON!"}};
-
-MENU_SELECT_LIST  const state_list[] = { &sel_auto, &sel_off, &sel_on};
-MENU_SELECT_LIST  const state_listOffOn[] = { &sel_off, &sel_on };
-/*
-MENU_SELECT rightDirMode_select = { &rightDirMode,           MENU_SELECT_SIZE(state_list),   MENU_TARGET(&state_list) };
-MENU_VALUE rightDirMode_value =   { TYPE_SELECT,     0,     0,     MENU_TARGET(&rightDirMode_select), LIGHTMODE_ADDR };
-MENU_ITEM rightDirMode_item =     { {"RIGHT DIR"}, ITEM_VALUE,  0,        MENU_TARGET(&rightDirMode_value) };
-//                               TYPE             MAX    MIN    TARGET
-MENU_SELECT rightPulMode_select =   { &rightDirMode,           MENU_SELECT_SIZE(state_list),   MENU_TARGET(&state_list) };
-MENU_VALUE rightPulMode_value =     { TYPE_SELECT,     0,     0,     MENU_TARGET(&rightPulMode_select) , FANMODE_ADDR};
-MENU_ITEM rightPulMode_item    =    { {"RIGHT PUL"}, ITEM_VALUE,  0,        MENU_TARGET(&rightPulMode_value) };
-
-MENU_SELECT leftPulMode_select ={ &leftPulMode,           MENU_SELECT_SIZE(state_list),   MENU_TARGET(&state_list) };
-MENU_VALUE leftPulMode_value =  { TYPE_SELECT,     0,     0,     MENU_TARGET(&leftPulMode_select), CYCLERMODE_ADDR };
-MENU_ITEM leftPulMode_item    = { {"LEFT PUL"}, ITEM_VALUE,  0,        MENU_TARGET(&leftPulMode_value) };
-
-MENU_SELECT leftDirMode_select ={ &leftDirMode,           MENU_SELECT_SIZE(state_list),   MENU_TARGET(&state_list) };
-MENU_VALUE leftDirMode_value =  { TYPE_SELECT,     0,     0,     MENU_TARGET(&leftDirMode_select), CYCLERMODE_ADDR };
-MENU_ITEM leftDirMode_item    = { {"LEFT DIR"}, ITEM_VALUE,  0,        MENU_TARGET(&leftDirMode_value) };
-*/
-MENU_SELECT shotMode_select = {&shotMode, MENU_SELECT_SIZE(state_list), MENU_TARGET(&state_list)};
-MENU_VALUE shotMode_value = {TYPE_SELECT, 0, 0, MENU_TARGET(&shotMode_select), SHOTMODE_ADDR};
-MENU_ITEM shotMode_item = 		{{"SHOT OUTPUT"}, ITEM_VALUE, 0, MENU_TARGET(&shotMode_value)};
-
-//MENU_LIST const submenu_list1[] = { &printMode_item, &leftPulMode_item, &leftDirMode_item, &rightPulMode_item, &rightDirMode_item,};
-//MENU_ITEM menu_submenu1 =      { {"OUTPUTS->"},  ITEM_MENU,  MENU_SIZE(submenu_list1),  MENU_TARGET(&submenu_list1) };
-
-MENU_VALUE stops_value = {TYPE_ULONG, 0, 0, MENU_TARGET(&stops), STOPS_ADDR};
-MENU_ITEM stops_item = 			{{"STOPS[-]"}, ITEM_VALUE, 0, MENU_TARGET(&stops_value)};
-MENU_VALUE stops2_value = {TYPE_LONG, 0, 0, MENU_TARGET(&stops2), STOPS2_ADDR};
-MENU_ITEM stops2_item = 			{{"STOPS 2[-]"}, ITEM_VALUE, 0, MENU_TARGET(&stops2_value)};
+//MENU_SELECT_ITEM  sel_auto =	{0, {"AUTO!"}};
+//MENU_SELECT_ITEM  sel_off =		{1, {"OFF!"}};
+//MENU_SELECT_ITEM  sel_on  = 	{2, {"ON!"}};
+//MENU_SELECT_LIST  const state_list[] = { &sel_auto, &sel_off, &sel_on};
+//MENU_SELECT_LIST  const state_listOffOn[] = { &sel_off, &sel_on };
+//MENU_SELECT shotMode_select = {&shotMode, MENU_SELECT_SIZE(state_list), MENU_TARGET(&state_list)};
+//MENU_VALUE shotMode_value = {TYPE_SELECT, 0, 0, MENU_TARGET(&shotMode_select), SHOTMODE_ADDR};
+//MENU_ITEM shotMode_item = 		{{"SHOT OUTPUT"}, ITEM_VALUE, 0, MENU_TARGET(&shotMode_value)};
 
 MENU_VALUE l0_value = {TYPE_LONG, 0, 0, MENU_TARGET(&l0), L0_ADDR};
 MENU_ITEM l0_item = 			{{"L0[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&l0_value)};
@@ -551,6 +500,8 @@ MENU_VALUE leftDirInv_value = {TYPE_BYTE, 1, 0, MENU_TARGET(&leftDirInv), LDIRIN
 MENU_ITEM leftDirInv_item  = 	{{"L DIR INV"}, ITEM_VALUE, 0, MENU_TARGET(&leftDirInv_value)};
 MENU_VALUE shotInv_value = {TYPE_BYTE, 1, 0, MENU_TARGET(&shotInv), SHOTINV_ADDR};
 MENU_ITEM shotInv_item = 		{{"SHOT INVERSION"}, ITEM_VALUE, 0, MENU_TARGET(&shotInv_value) };
+MENU_VALUE preShotInv_value = {TYPE_BYTE, 1, 0, MENU_TARGET(&preShotInv), PRESHOTINV_ADDR};
+MENU_ITEM preShotInv_item = 	{{"PRESHOT INVERSION"}, ITEM_VALUE, 0, MENU_TARGET(&preShotInv_value) };
 
 MENU_VALUE leftEnaInv_value = {TYPE_BYTE, 1, 0, MENU_TARGET(&leftEnaInv), LENAINV_ADDR};
 MENU_ITEM leftEnaInv_item = 	{{"L ENA INV"}, ITEM_VALUE, 0, MENU_TARGET(&leftEnaInv_value) };
@@ -562,26 +513,27 @@ MENU_ITEM lscale_item = 		{{"L SCALE[st/deg]"}, ITEM_VALUE, 0, MENU_TARGET(&lsca
 MENU_VALUE rscale_value = {TYPE_LONG, 0, 0, MENU_TARGET(&rScale),RSCALE_ADDR};
 MENU_ITEM rscale_item =			{{"R SCALE[st/deg]"}, ITEM_VALUE, 0, MENU_TARGET(&rscale_value)};
 
-
 MENU_VALUE lnext_value = {TYPE_LONG, 0, 0, MENU_TARGET(&lNext), LNEXT_ADDR};
 MENU_ITEM lnext_item = 			{{"L NEXT[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&lnext_value) };
 MENU_VALUE rnext_value = {TYPE_LONG, 0, 0, MENU_TARGET(&rNext),RNEXT_ADDR };
 MENU_ITEM rnext_item =			{{"R NEXT[steps]"}, ITEM_VALUE, 0, MENU_TARGET(&rnext_value) };
-/*
-MENU_VALUE overlayMode_value = {TYPE_UINT, 0, 0, MENU_TARGET(&overlayMode), OVERLAYMODE_ADDR};
-MENU_ITEM overlayMode_item = 	{{"OVERLAY MODE"}, ITEM_VALUE, 0, MENU_TARGET(&overlayMode_value)};
-*/
+
+MENU_VALUE stops_value = {TYPE_ULONG, 0, 0, MENU_TARGET(&stops), STOPS_ADDR};
+MENU_ITEM stops_item = 			{{"L STOPS[-]"}, ITEM_VALUE, 0, MENU_TARGET(&stops_value)};
+MENU_VALUE stops2_value = {TYPE_LONG, 0, 0, MENU_TARGET(&stops2), STOPS2_ADDR};
+MENU_ITEM stops2_item = 		{{"R STOPS[-]"}, ITEM_VALUE, 0, MENU_TARGET(&stops2_value)};
 
 MENU_ITEM item_reset = 			{{"RESET DEFAULTS!"}, ITEM_ACTION, 0, MENU_TARGET(&uiResetAction) };
 //MENU_ITEM item_info   = { {"INFO->"},  ITEM_ACTION, 0,        MENU_TARGET(&uiInfo) };
 
 MENU_LIST const submenuUserSettings_list[] = {&l0_item, &r0_item, &l1_item, &r1_item};
-MENU_ITEM menu_userSettings = 	{{"RANGE->"}, ITEM_MENU, MENU_SIZE(submenuUserSettings_list), MENU_TARGET(&submenuUserSettings_list)};
+MENU_ITEM menu_userSettings = 	{{"START/FIN POS->"}, ITEM_MENU, MENU_SIZE(submenuUserSettings_list), MENU_TARGET(&submenuUserSettings_list)};
 
-MENU_LIST const submenuAdmiSettings_list[] = {&stops_item, &stops2_item, &lnext_item, &rnext_item, &speed_item, &acceleration_item, &preShotTime_item, &shotTime_item, &postShotTime_item, &leftDirInv_item, &leftEnaInv_item, &rightDirInv_item, &rightEnaInv_item, &shotInv_item, &shotMode_item, &lmin_item, &rmin_item, &lmax_item, &rmax_item, &lscale_item, &rscale_item, &item_reset}; //&langle_item, &rangle_item, &overlayMode_item,
+MENU_LIST const submenuAdmiSettings_list[] = {&lnext_item, &rnext_item, &stops_item, &stops2_item, &speed_item, &acceleration_item, &preShotTime_item, &shotTime_item, &postShotTime_item, &leftDirInv_item, &leftEnaInv_item, &rightDirInv_item, &rightEnaInv_item, &shotInv_item, &preShotInv_item, &lmin_item, &rmin_item, &lmax_item, &rmax_item, &lscale_item, &rscale_item, &item_reset}; //&langle_item, &rangle_item, &overlayMode_item,
 MENU_ITEM menu_adminSettings = 	{{"SETTINGS->"}, ITEM_MENU, MENU_SIZE(submenuAdmiSettings_list), MENU_TARGET(&submenuAdmiSettings_list)};
 
 MENU_ITEM item_control = 		{{"CALIBRATION"}, ITEM_ACTION, 0, MENU_TARGET(&uiControl)};
+MENU_ITEM item_control2 = 		{{"MOVE"}, ITEM_ACTION, 0, MENU_TARGET(&uiControl2)};
 
 MENU_ITEM movePause_control = 	{{"MOVE PAUSE!"}, ITEM_ACTION, 0, MENU_TARGET(&uiMovePause)};
 MENU_ITEM moveStart_control = 	{{"MOVE START!"}, ITEM_ACTION, 0, MENU_TARGET(&uiMoveStart)};
@@ -591,10 +543,7 @@ MENU_ITEM gotoPosLR0_control = 	{{"GOTO START POS!"}, ITEM_ACTION, 0, MENU_TARGE
 MENU_ITEM gotoPosLR1_control = 	{{"GOTO FINAL POS!"},	ITEM_ACTION, 0, MENU_TARGET(&uiGotoPosLR1)};
 MENU_ITEM gotoPosInit_control = {{"GOTO ZERO POS!"}, ITEM_ACTION, 0,  MENU_TARGET(&uiGotoPosInit)};
 
-//        List of items in menu level
-MENU_LIST const root_list[] = {&movePause_control, &moveStart_control, &moveStop_control, &gotoPosInit_control, &item_control, &menu_userSettings, &gotoPosLR0_control, &gotoPosLR1_control, &menu_adminSettings};
-
-// Root item is always created last, so we can add all other items to it
+MENU_LIST const root_list[] = {&movePause_control, &moveStart_control, &moveStop_control, &gotoPosInit_control, &item_control, &item_control2, &menu_userSettings, &gotoPosLR0_control, &gotoPosLR1_control, &menu_adminSettings};
 MENU_ITEM menu_root = {{"ROOT"}, ITEM_MENU, MENU_SIZE(root_list), MENU_TARGET(&root_list)};
 
 OMMenuMgr2 Menu(&menu_root, MENU_DIGITAL, &kpd);
@@ -632,6 +581,7 @@ void loadEEPROM() {
     read(LDIRINV_ADDR, leftDirInv);
     read(RDIRINV_ADDR, rightDirInv);
     read(SHOTINV_ADDR, shotInv);
+    read(PRESHOTINV_ADDR, preShotInv);
     read(LMIN_ADDR, lMin);
     read(RMIN_ADDR, rMin);
     read(LMAX_ADDR, lMax);
@@ -640,7 +590,6 @@ void loadEEPROM() {
     read(RSCALE_ADDR, rScale);
     read(LENAINV_ADDR, leftEnaInv);
     read(RENAINV_ADDR, rightEnaInv);
-    //read(OVERLAYMODE_ADDR, overlayMode);
     read(STOPS2_ADDR, stops2);
     read(LNEXT_ADDR, lNext);
     read(RNEXT_ADDR, rNext);
@@ -651,29 +600,27 @@ void saveDefaultEEPROM() {
 	shotMode = 0;
 	pulSpeed = 4000;
 	pulAcceleration = 100;
-	stops = 2;
+	stops = 0;
 	preShotTime = 3000;
 	shotTime = 500;
 	postShotTime = 1500;
-	l0 = 1000;
-	r0 = 1000;
-	l1 = -1000;
-	r1 = -1000;
+	l0 = -1000;
+	r0 = -1000;
+	l1 = 1000;
+	r1 = 1000;
 	leftDirInv = 0;
 	rightDirInv = 0;
 	leftEnaInv = 1;
 	rightEnaInv = 1;
 	shotInv = 0;
+	preShotInv = 0;
 	lMin = -10000;
 	rMin = -10000;
 	lMax = 10000;
 	rMax = 10000;
 	lScale = 10;
 	rScale = 10;
-	//lAngle = 30;
-	//rAngle = 30;
-	//overlayMode = 1;
-	stops2 = 0;
+	stops2 = 1;
 	lNext = 100;
 	rNext = 100;
 
@@ -692,6 +639,7 @@ void saveDefaultEEPROM() {
     write(LDIRINV_ADDR, leftDirInv);
     write(RDIRINV_ADDR, rightDirInv);
     write(SHOTINV_ADDR, shotInv);
+    write(PRESHOTINV_ADDR, preShotInv);
     write(LMIN_ADDR, lMin);
     write(RMIN_ADDR, rMin);
     write(LMAX_ADDR, lMax);
@@ -700,7 +648,6 @@ void saveDefaultEEPROM() {
     write(RSCALE_ADDR, rScale);
     write(LENAINV_ADDR, leftEnaInv);
     write(RENAINV_ADDR, rightEnaInv);
-    //write(OVERLAYMODE_ADDR, overlayMode);
     write(STOPS2_ADDR, stops2);
     write(LNEXT_ADDR, lNext);
     write(RNEXT_ADDR, rNext);
@@ -760,7 +707,6 @@ void setup() {
 	//Serial1.println(TEXT_ID0);
 	//Serial1.println(TEXT_ID1);
 
-	//setup2();
 	Wire.begin( );
 	kpd.begin( makeKeymap(keys) );
 	lcd.begin(LCD_COLS, LCD_ROWS);
@@ -847,20 +793,9 @@ void gotoPosLR(long l, long r) {
 
 	//leftGo(l - leftPulsPos > 0, l - leftPulsPos);
 	//rightGo(r - rightPulsPos > 0, r - rightPulsPos);
+
 	stepperL.moveTo(l);
 	stepperR.moveTo(r);
-
-	/*
-	Serial.print(vp.getLength(leftPulsPos));
-	Serial.print('\t');
-	//Serial.print(l - vp.getLength(leftPulsPos));
-	//Serial.print('\t');
-	Serial.print(vp.getDirection(l, vp.getLength(leftPulsPos)));
-	Serial.print('\t');
-	Serial.print(vp.stepDistance);
-	Serial.print('\t');
-	Serial.println(leftPuls);
-	 */
 }
 
 long lCalcStep, rCalcStep;
@@ -878,7 +813,7 @@ void calcStops() {
 		//TODO: ?
 		long rest = (l1 - l0) - (lCalcStep * lStops);
 		if(rest) {
-			Serial.print("lCalcStep cor: ");
+			Serial.print("lCalcStep corr: ");
 			Serial.println(rest / lStops);
 
 			if(rest >= lNext / 2)
@@ -889,7 +824,7 @@ void calcStops() {
 
 		rest = rest = (r1 - r0) - (rCalcStep * rStops);
 		if(rest) {
-			Serial.print("rCalcStep cor: ");
+			Serial.print("rCalcStep corr: ");
 			Serial.println(rest / rStops);
 
 			if(rest >= rNext / 2)
@@ -971,43 +906,6 @@ void loop() {
 	Menu.checkInput();
 
 	if(state == STATE_RUNNING) {
-		/*
-		if(stops == 0) {
-			long l = (l1 - l0) / lNext;
-			//l += ((l1 - l0) % lNext) ? 1 : 0;
-			long r = (r1 - r0) / rNext;
-			//r += ((r1 - r0) % rNext) ? 1 : 0;
-			if(stops2 > 0) {
-				stops = l;
-				stops2 = r;
-			}
-			else {
-				stops2 = l;
-				stops = r;
-			}
-		}
-		else {
-			if(stops2 == 1) {
-				lCalStep = (l1 - l0) / (stops - 1);
-				rCalStep = (r1 - r0) / (stops2 - 1);
-			}
-			else {
-				if(stops2 > 0 ) {
-					lCalStep = (l1 - l0) / (stops - 1);
-					rCalStep = (r1 - r0) / (stops2 - 1);
-				}
-				else {
-					lCalStep = (l1 - l0) / (-stops2 - 1);
-					rCalStep = (r1 - r0) / (stops - 1);
-				}
-			}
-		}
-		Serial.print(stops);
-		Serial.print(" x ");
-		Serial.println(stops2);
-		*/
-
-		//if(stopsCounter == 0 && stopsCounter2 == 0) {
 		if(lStopsCounter == 0 && rStopsCounter == 0) {
 			gotoPosLR(l0, r0);
 		}
@@ -1028,10 +926,8 @@ void loop() {
 					shotState = 2;
 
 					Serial.print("shot: ");
-					//Serial.print(stopsCounter);
 					Serial.print(lStopsCounter);
 					Serial.print(" x ");
-					//Serial.println(stopsCounter2);
 					Serial.println(rStopsCounter);
 				}
 				if(millis() - shotMillis >= shotTime) {
@@ -1048,34 +944,23 @@ void loop() {
 
 						long nextLeftStop, nextRightStop;
 						if(stops2 == 0) {
-							//stopsCounter++;
-
 							lStopsCounter++;
 							rStopsCounter++;
-							//if(stopsCounter >= stops) {
+
 							if(lStopsCounter >= lStops) {
 								state = STATE_DONE;
-								//stopsCounter = 0;
 								lStopsCounter = 0;
 								rStopsCounter = 0;
 								nextLeftStop = 0;
 								nextRightStop = 0;
 							}
 							else {
-								//nextLeftStop = ((l1 - l0) / (stops - 1)) * stopsCounter + l0;
-								//nextRightStop = ((r1 - r0) / (stops - 1)) * stopsCounter + r0;
 								nextLeftStop = lCalcStep * lStopsCounter + l0;
 								nextRightStop = rCalcStep * rStopsCounter + r0;
 							}
 						}
 
 						if(stops2 != 0) {
-							//stopsCounter++;
-							//if(stopsCounter >= stops) {
-							//		stopsCounter = 0;
-							//		stopsCounter2++;
-							//}
-
 							if(stops2 > 0) {
 								lStopsCounter++;
 								if(lStopsCounter >= lStops) {
@@ -1092,22 +977,10 @@ void loop() {
 
 							nextLeftStop = lCalcStep * lStopsCounter + l0;
 							nextRightStop = rCalcStep * rStopsCounter + r0;
-
-							//if(stops2 > 0 ) {
-							//	nextLeftStop = ((l1 - l0) / (stops - 1)) * stopsCounter + l0;
-							//	nextRightStop = ((r1 - r0) / (stops2 - 1)) * stopsCounter2 + r0;
-							//}
-							//else {
-							//	nextLeftStop = ((l1 - l0) / (-stops2 - 1)) * stopsCounter2 + l0;
-							//	nextRightStop = ((r1 - r0) / (stops - 1)) * stopsCounter + r0;
-							//}
 						}
 
-						//if(stopsCounter2 >= abs(stops2)) {
 						if(lStopsCounter >= lStops && rStopsCounter >= rStops) {
 							state = STATE_DONE;
-							//stopsCounter = 0;
-							//stopsCounter2 = 0;
 							lStopsCounter = 0;
 							rStopsCounter = 0;
 							nextLeftStop = 0;
@@ -1293,7 +1166,7 @@ void loop() {
 		if (pos >= 0) {
 			rComm = (unsigned long)text.substring(pos + strlen(MESSAGE_CMD_SETR)).toInt();
 		}
-		pos = text.indexOf(MESSAGE_CMD_SCROLL);
+		pos = text.indexOf(MESSAGE_CMD_GO);
 		if (pos >= 0) {
 			shotMode = zComm;
 			gotoPosLR(lComm, rComm);
@@ -1361,31 +1234,21 @@ void uiInstrument(bool instrument, byte mode) {
 }
 
 void uiMovePause() {
+	if(state == STATE_RUNNING)
+		state = STATE_PAUSED;
+	else if(state == STATE_PAUSED)
+		state = STATE_RUNNING;
 	uiOK();
-	state = STATE_PAUSED;
 	return;
-	//Menu.enable(false);
-	//uiState = UISTATE_INFO;
-	//uiPage = 0;
-	//uiKeyMillis = 0;
-	//uiKeyPressed = 0;
-	//state = STATE_PAUSED;
 }
 
 void uiMoveStop() {
-	uiOK();
 	shotAuto = false;
-	//stopsCounter = 0;
-	//stopsCounter2 = 0;
 	lStopsCounter = 0;
 	rStopsCounter = 0;
 	state = STATE_STOPPED;
+	uiOK();
 	return;
-	//Menu.enable(false);
-	//uiState = UISTATE_INFO;
-	//uiPage = 0;
-	//uiKeyMillis = 0;
-	//uiKeyPressed = 0;
 }
 
 void uiMoveStart() {
@@ -1393,13 +1256,6 @@ void uiMoveStart() {
 	calcStops();
 	state = STATE_RUNNING;
 	return;
-	//Menu.enable(false);
-	//uiPage = 0;
-	//uiKeyMillis = 0;
-	//uiKeyPressed = 0;
-	//uiState = UISTATE_INFO;
-	//uiPage = 0;
-	//state = STATE_RUNNING;
 }
 
 void uiControl() {
@@ -1414,6 +1270,23 @@ void uiControl() {
 	lcd.setCursor(0, 0);
 			  //"0123456789ABCDEF"
 	lcd.print(F("Z[C] S[A] F[B] #ESC"));
+	lcd.setCursor(0, 1);
+			  //"0123456789ABCDEF"
+	lcd.print(F("^2L5_ <4R6>  0-S"));
+}
+
+void uiControl2() {
+	lcd.backlight();
+	Menu.enable(false);
+	uiState = UISTATE_CONTROL2;
+	uiPage = 1;
+	uiKeyMillis = 0;
+	uiKeyPressed = 0;
+
+	lcd.clear();
+	//lcd.setCursor(0, 0);
+			  //"0123456789ABCDEF"
+	//lcd.print(F("Z[C] S[A] F[B] #ESC"));
 	lcd.setCursor(0, 1);
 			  //"0123456789ABCDEF"
 	lcd.print(F("^2L5_ <4R6>  0-S"));
@@ -1454,7 +1327,8 @@ void uiScreen() {
 		 if(!uiKeyMillis) {
 			 uiKeyMillis = millis();
 		 }
-		 if((uiKeyMillis + 120) > millis()) {
+		 //if((uiKeyMillis + 120) > millis()) {
+		 if(millis() - uiKeyMillis < 120) {
 			 key = 0;
 		 }
 		 else {
@@ -1465,7 +1339,8 @@ void uiScreen() {
 				 uiKeyPressed = key;
 			 }
 		 }
-		 if((uiKeyMillis + 600) < millis()){
+		 //if((uiKeyMillis + 600) < millis()){
+		 if(millis() - uiKeyMillis > 600) {
 			 uiKeyPressed = 0;
 		 }
 	}
@@ -1494,6 +1369,23 @@ void uiScreen() {
 			uiState = UISTATE_MAIN;
 			Menu.enable(true);
 		}
+		if(key == '#' || key == '*') {
+			uiState = UISTATE_MAIN;
+			Menu.enable(true);
+		}
+	}
+	if(uiState == UISTATE_CONTROL2) {
+		if(millis() - uiScreenMillis > 500) {
+			uiScreenMillis = millis();
+			lcd.setCursor(0, 0);
+			lcd.print(stepperL.currentPosition());
+			lcd.setCursor(8, 0);
+			lcd.print(stepperR.currentPosition());
+		}
+		if(key == '#' || key == '*') {
+			uiState = UISTATE_MAIN;
+			Menu.enable(true);
+		}
 	}
 
 	if(uiState == UISTATE_INFO) {
@@ -1504,175 +1396,155 @@ void uiScreen() {
 			uiPage++;
 		}
 		uiPage = max(0, uiPage);
-		uiPage = min(5, uiPage);
+		uiPage = min(4, uiPage);
 
-		if(uiPage == 0) {
-			//TODO: once per ?
-			lcd.setCursor(0, 0);
-			if(state == STATE_STOPPED ) {
-			    lcd.print(F("MOVING STOPPED"));
-			    uiLcdPrintSpaces8();
-			    lcd.setCursor(0, 1);
-			    uiLcdPrintSpaces8();
-			    uiLcdPrintSpaces8();
-			}
-			else if(state == STATE_RUNNING || state == STATE_PAUSED) {
-				if(state == STATE_PAUSED )
-				    lcd.print(F("MOVING PAUSED"));
-				else
-					lcd.print(F("MOVING RUNNING"));
-			    uiLcdPrintSpaces8();
-			    lcd.setCursor(0, 1);
-				//lcd.print(stopsCounter);
-			    lcd.print(lStopsCounter);
-				lcd.print('/');
-				//lcd.print(stops);
-				lcd.print(lStops);
-			    uiLcdPrintSpaces8();
-			    lcd.setCursor(8, 1);
-			    lcd.print(rStopsCounter);
-				//lcd.print(stopsCounter2);
-				lcd.print('/');
-				//lcd.print(stops2);
-				lcd.print(rStops);
-			    uiLcdPrintSpaces8();
-			}
-			else if(state == STATE_DONE ) {
-			    lcd.print(F("MOVING FINISH"));
-			    uiLcdPrintSpaces8();
-			    lcd.setCursor(0, 1);
-			    uiLcdPrintSpaces8();
-			    uiLcdPrintSpaces8();
-			}
-		}
-		if(uiPage == 1) {
-			lcd.setCursor(0, 0);
-			//lcd.print(leftPuls);
-			lcd.print(F("L:"));
-			lcd.print(stepperL.currentPosition());
-		    uiLcdPrintSpaces8();
-		    //lcd.setCursor(10, 0);
-		    //lcd.print(F("/"));
-		    //lcd.print(rightPuls);
-		    //lcd.print(stepperL.distanceToGo());
-		    //uiLcdPrintSpaces8();
-		    uiLcdPrintSpaces8();
-		    lcd.setCursor(0, 1);
-		    //lcd.print(leftPulsPos);
-		    lcd.print(F("R:"));
-		    lcd.print(stepperR.currentPosition());
-		    uiLcdPrintSpaces8();
-		    //lcd.setCursor(10, 1);
-		    //lcd.print(F("/"));
-		    //lcd.print(rightPulsPos);
-		    //lcd.print(stepperR.distanceToGo());
-		    //uiLcdPrintSpaces8();
-		    uiLcdPrintSpaces8();
-		}
-		if(uiPage == 2) {
-			lcd.setCursor(0, 0);
-			//lcd.print(leftPuls);
-			lcd.print(F("L[deg]:"));
-			lcd.print(stepperL.currentPosition() / lScale);
-			uiLcdPrintSpaces8();
-			uiLcdPrintSpaces8();
-			lcd.setCursor(0, 1);
-			//lcd.print(leftPulsPos);
-			lcd.print(F("R[deg]:"));
-			lcd.print(stepperR.currentPosition() / rScale);
-			uiLcdPrintSpaces8();
-			//lcd.setCursor(10, 1);
-			//lcd.print(F("/"));
-			//lcd.print(rightPulsPos);
-			//lcd.print(stepperR.distanceToGo());
-			//uiLcdPrintSpaces8();
-			uiLcdPrintSpaces8();
+		if(millis() - uiScreenMillis > 500) {
+			uiScreenMillis = millis();
 
-			//Serial.println(stepperL.currentPosition());
-			//Serial.println(lScale);
-			//Serial.println(stepperL.currentPosition() / lScale);
-			//Serial.println();
-
-		}
-		if(uiPage == 3) {
-			if(false) {
-				secToggle ? lcd.backlight() : lcd.noBacklight();
+			if(uiPage == 0) {
+				//TODO: once per ?
+				lcd.setCursor(0, 0);
+				if(state == STATE_STOPPED ) {
+					lcd.print(F("MOVING STOPPED"));
+					uiLcdPrintSpaces8();
+					lcd.setCursor(0, 1);
+					uiLcdPrintSpaces8();
+					uiLcdPrintSpaces8();
+				}
+				else if(state == STATE_RUNNING || state == STATE_PAUSED) {
+					if(state == STATE_PAUSED )
+						lcd.print(F("MOVING PAUSED"));
+					else
+						lcd.print(F("MOVING RUNNING"));
+					uiLcdPrintSpaces8();
+					lcd.setCursor(0, 1);
+					//lcd.print(stopsCounter);
+					lcd.print(lStopsCounter);
+					lcd.print('/');
+					//lcd.print(stops);
+					lcd.print(lStops);
+					uiLcdPrintSpaces8();
+					lcd.setCursor(8, 1);
+					lcd.print(rStopsCounter);
+					//lcd.print(stopsCounter2);
+					lcd.print('/');
+					//lcd.print(stops2);
+					lcd.print(rStops);
+					uiLcdPrintSpaces8();
+				}
+				else if(state == STATE_DONE ) {
+					lcd.print(F("MOVING FINISH"));
+					uiLcdPrintSpaces8();
+					lcd.setCursor(0, 1);
+					uiLcdPrintSpaces8();
+					uiLcdPrintSpaces8();
+				}
 			}
-			else {
-				lcd.backlight();
+			if(uiPage == 1) {
+				lcd.setCursor(0, 0);
+				//lcd.print(leftPuls);
+				lcd.print(F("L:"));
+				lcd.print(stepperL.currentPosition());
+				uiLcdPrintSpaces8();
+				//lcd.setCursor(10, 0);
+				//lcd.print(F("/"));
+				//lcd.print(rightPuls);
+				//lcd.print(stepperL.distanceToGo());
+				//uiLcdPrintSpaces8();
+				uiLcdPrintSpaces8();
+				lcd.setCursor(0, 1);
+				//lcd.print(leftPulsPos);
+				lcd.print(F("R:"));
+				lcd.print(stepperR.currentPosition());
+				uiLcdPrintSpaces8();
+				//lcd.setCursor(10, 1);
+				//lcd.print(F("/"));
+				//lcd.print(rightPulsPos);
+				//lcd.print(stepperR.distanceToGo());
+				//uiLcdPrintSpaces8();
+				uiLcdPrintSpaces8();
 			}
+			if(uiPage == 2) {
+				lcd.setCursor(0, 0);
+				//lcd.print(leftPuls);
+				lcd.print(F("L[deg]:"));
+				lcd.print(stepperL.currentPosition() / lScale);
+				uiLcdPrintSpaces8();
+				uiLcdPrintSpaces8();
+				lcd.setCursor(0, 1);
+				//lcd.print(leftPulsPos);
+				lcd.print(F("R[deg]:"));
+				lcd.print(stepperR.currentPosition() / rScale);
+				uiLcdPrintSpaces8();
+				//lcd.setCursor(10, 1);
+				//lcd.print(F("/"));
+				//lcd.print(rightPulsPos);
+				//lcd.print(stepperR.distanceToGo());
+				//uiLcdPrintSpaces8();
+				uiLcdPrintSpaces8();
 
-			lcd.setCursor(0, 0);
-			lcd.print("SHOT");
-			uiInstrument(shotControl, shotMode);
-			uiLcdPrintSpaces8();
-			uiLcdPrintSpaces8();
+				//Serial.println(stepperL.currentPosition());
+				//Serial.println(lScale);
+				//Serial.println(stepperL.currentPosition() / lScale);
+				//Serial.println();
 
-			lcd.setCursor(0, 1);
-			lcd.print("LP");
-			uiInstrument(leftPulControl, leftPulMode);
-			lcd.print("LD");
-			uiInstrument(leftDirControl, leftDirMode);
-			lcd.print("RP");
-			uiInstrument(rightPulControl, rightPulMode);
-			lcd.print("RD");
-			uiInstrument(rightDirControl, rightDirMode);
+			}
+			if(uiPage == 3) {
+				lcd.setCursor(0, 0);
+				lcd.print(F("L0[st]:"));
+				lcd.print(l0);
+				uiLcdPrintSpaces8();
+				uiLcdPrintSpaces8();
+				lcd.setCursor(0, 1);
+				lcd.print(F("R0[st]:"));
+				lcd.print(r0);
+				uiLcdPrintSpaces8();
+				uiLcdPrintSpaces8();
+			}
+			if(uiPage == 4) {
+				lcd.setCursor(0, 0);
+				lcd.print(F("L1[st]:"));
+				lcd.print(l1);
+				uiLcdPrintSpaces8();
+				uiLcdPrintSpaces8();
+				lcd.setCursor(0, 1);
+				lcd.print(F("R1[st]:"));
+				lcd.print(r1);
+				uiLcdPrintSpaces8();
+				uiLcdPrintSpaces8();
+			}
+			/*
+			if(uiPage == 6) {
+				lcd.setCursor(0, 0);
+				lcd.print(F("SPEED[st/s]:"));
+				lcd.print(pulSpeed);
+				uiLcdPrintSpaces8();
+				lcd.setCursor(0, 1);
+				lcd.print(F("ACCEL[st/s2]:"));
+				lcd.print(pulAcceleration);
+				uiLcdPrintSpaces8();
+			}
+			if(uiPage == 7) {
+				lcd.setCursor(0, 0);
+				lcd.print(F("PRE[ms]:"));
+				lcd.print(preShotTime);
+				uiLcdPrintSpaces8();
+				lcd.setCursor(0, 1);
+				lcd.print(F("POST[ms]:"));
+				lcd.print(postShotTime);
+				uiLcdPrintSpaces8();
+			}
+			if(uiPage == 8) {
+				lcd.setCursor(0, 0);
+				lcd.print(F("SHOT[ms]:"));
+				lcd.print(shotTime);
+				uiLcdPrintSpaces8();
+				lcd.setCursor(0, 1);
+				uiLcdPrintSpaces8();
+				uiLcdPrintSpaces8();
+			}
+			*/
 		}
-		if(uiPage == 4) {
-		    lcd.setCursor(0, 0);
-			lcd.print(F("L0[st]:"));
-			lcd.print(l0);
-			uiLcdPrintSpaces8();
-			uiLcdPrintSpaces8();
-			lcd.setCursor(0, 1);
-			lcd.print(F("R0[st]:"));
-			lcd.print(r0);
-			uiLcdPrintSpaces8();
-			uiLcdPrintSpaces8();
-		}
-		if(uiPage == 5) {
-			lcd.setCursor(0, 0);
-			lcd.print(F("L1[st]:"));
-			lcd.print(l1);
-			uiLcdPrintSpaces8();
-			uiLcdPrintSpaces8();
-			lcd.setCursor(0, 1);
-			lcd.print(F("R1[st]:"));
-			lcd.print(r1);
-			uiLcdPrintSpaces8();
-			uiLcdPrintSpaces8();
-		}
-		/*
-		if(uiPage == 6) {
-		    lcd.setCursor(0, 0);
-			lcd.print(F("SPEED[st/s]:"));
-			lcd.print(pulSpeed);
-			uiLcdPrintSpaces8();
-			lcd.setCursor(0, 1);
-			lcd.print(F("ACCEL[st/s2]:"));
-			lcd.print(pulAcceleration);
-			uiLcdPrintSpaces8();
-		}
-		if(uiPage == 7) {
-		    lcd.setCursor(0, 0);
-			lcd.print(F("PRE[ms]:"));
-			lcd.print(preShotTime);
-			uiLcdPrintSpaces8();
-			lcd.setCursor(0, 1);
-			lcd.print(F("POST[ms]:"));
-			lcd.print(postShotTime);
-			uiLcdPrintSpaces8();
-		}
-		if(uiPage == 8) {
-		    lcd.setCursor(0, 0);
-			lcd.print(F("SHOT[ms]:"));
-			lcd.print(shotTime);
-			uiLcdPrintSpaces8();
-			lcd.setCursor(0, 1);
-			uiLcdPrintSpaces8();
-			uiLcdPrintSpaces8();
-		}
-		*/
 	}
 	/*
 	if(uiState == UISTATE_EDITTEXT) {

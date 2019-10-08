@@ -2,7 +2,7 @@
 //This is a automatic generated file
 //Please do not modify this file
 //If you touch this file your change will be overwritten during the next build
-//This file has been generated on 2019-10-05 23:10:21
+//This file has been generated on 2019-10-08 21:34:35
 
 #include "Arduino.h"
 #include "Arduino.h"
@@ -52,6 +52,7 @@ extern AccelStepper stepperR;
 #define RNEXT_ADDR			92
 #define LENAINV_ADDR		96
 #define RENAINV_ADDR		97
+#define PRESHOTINV_ADDR		98
 #define MESSAGE_CMD_REQUEST  		"?"
 #define MESSAGE_CMD_PARREADINT 		"#PRI"
 #define MESSAGE_CMD_PARREADFLOAT 	"#PRF"
@@ -61,10 +62,11 @@ extern AccelStepper stepperR;
 #define MESSAGE_CMD_SETZ 		"Z"
 #define MESSAGE_CMD_SETL 		"L"
 #define MESSAGE_CMD_SETR 		"R"
-#define MESSAGE_CMD_SCROLL 		"S"
+#define MESSAGE_CMD_GO	 		"G"
 #define UISTATE_MAIN 		0
 #define UISTATE_INFO 		3
 #define UISTATE_CONTROL 	5
+#define UISTATE_CONTROL2 	6
 #define STATE_STOPPED 		0
 #define STATE_RUNNING 		1
 #define STATE_PAUSED 		2
@@ -84,9 +86,9 @@ extern bool secToggle;
 extern char uiKeyPressed;
 extern int uiState;
 extern unsigned long uiKeyMillis;
+extern unsigned long uiScreenMillis;
 extern unsigned long preShotMillis;
 extern long lComm;
-extern long stops;
 extern long lStops;
 extern byte preShotMode;
 extern bool preShotControl;
@@ -94,8 +96,7 @@ extern bool preShotAuto;
 extern bool leftDirInv;
 extern unsigned int pulSpeed;
 extern long l0;
-extern long lScale;
-extern long lNext;
+extern long stops;
 #include "LiquidCrystal_I2C.h"
 extern LiquidCrystal_I2C lcd;
 #include "Keypad_I2C.h"
@@ -131,6 +132,7 @@ void uiMovePause() ;
 void uiMoveStop() ;
 void uiMoveStart() ;
 void uiControl() ;
+void uiControl2() ;
 void uiInfo() ;
 void uiGotoPosLR0() ;
 void uiGotoPosLR1() ;
