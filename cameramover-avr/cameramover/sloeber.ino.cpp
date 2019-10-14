@@ -2,7 +2,7 @@
 //This is a automatic generated file
 //Please do not modify this file
 //If you touch this file your change will be overwritten during the next build
-//This file has been generated on 2019-10-08 21:34:35
+//This file has been generated on 2019-10-08 21:40:02
 
 #include "Arduino.h"
 #include "Arduino.h"
@@ -11,7 +11,7 @@
 #include <AccelStepper.h>
 extern const byte KPD_ROWS;
 extern const byte KPD_COLS;
-#define KPD_I2CADDR 0x38
+#define KPD_I2CADDR 0x20
 #define OK_DELAY 500
 #define LCD_I2CADDR 0x27
 extern const byte LCD_ROWS;
