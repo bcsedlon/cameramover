@@ -12,7 +12,7 @@
 const byte KPD_ROWS = 4;
 const byte KPD_COLS = 4;
 
-#define KPD_I2CADDR 0x38 //0x20 //0x38
+#define KPD_I2CADDR 0x20 //0x38
 char keys[KPD_ROWS][KPD_COLS] = {
 		  {'1','2','3','A'},
 		  {'4','5','6','B'},
@@ -69,7 +69,6 @@ AccelStepper stepperR(AccelStepper::DRIVER, R_PUL_PIN, R_DIR_PIN);
 #define RENAINV_ADDR		97	//byte
 #define PRESHOTINV_ADDR		98
 //#define SPAREBYTE_ADDR		99
-
 
 #define MESSAGE_CMD_REQUEST  		"?"
 #define MESSAGE_CMD_PARREADINT 		"#PRI"
@@ -816,10 +815,11 @@ void calcStops() {
 			Serial.print("lCalcStep corr: ");
 			Serial.println(rest / lStops);
 
-			if(rest >= lNext / 2)
-				lCalcStep += rest / lStops;
-			else
-				lCalcStep -= rest / lStops;
+			lCalcStep += rest / lStops;
+			//if(rest >= lNext / 2)
+			//	lCalcStep += rest / lStops;
+			//else
+			//	lCalcStep -= rest / lStops;
 		}
 
 		rest = rest = (r1 - r0) - (rCalcStep * rStops);
@@ -827,11 +827,15 @@ void calcStops() {
 			Serial.print("rCalcStep corr: ");
 			Serial.println(rest / rStops);
 
-			if(rest >= rNext / 2)
 			rCalcStep += rest / rStops;
-		else
-			rCalcStep -= rest / rStops;
+			//if(rest >= rNext / 2)
+			//	rCalcStep += rest / rStops;
+			//else
+			//	rCalcStep -= rest / rStops;
 		}
+
+		lStops++;
+		rStops++;
 	}
 	else {
 		// number of stops set by user
@@ -848,6 +852,20 @@ void calcStops() {
 			rStops = stops;
 		}
 	}
+
+	Serial.print(F("L0: ")); Serial.println(l0);
+	Serial.print(F("R0: ")); Serial.println(r0);
+	Serial.print(F("L1: ")); Serial.println(l1);
+	Serial.print(F("R1: ")); Serial.println(r1);
+	Serial.print(F("L MIN: ")); Serial.println(lMin);
+	Serial.print(F("R MIN: ")); Serial.println(rMin);
+	Serial.print(F("L MAX: ")); Serial.println(lMax);
+	Serial.print(F("R MAX: ")); Serial.println(rMax);
+	Serial.print(F("L NEXT: ")); Serial.println(lNext);
+	Serial.print(F("R NEXT: ")); Serial.println(rNext);
+	Serial.print(F("L STOPS: ")); Serial.println(stops);
+	Serial.print(F("R STOPS: ")); Serial.println(stops2);
+
 	Serial.print(lStops);
 	Serial.print(" x ");
 	Serial.println(rStops);
@@ -979,7 +997,8 @@ void loop() {
 							nextRightStop = rCalcStep * rStopsCounter + r0;
 						}
 
-						if(lStopsCounter >= lStops && rStopsCounter >= rStops) {
+						//if(lStopsCounter >= lStops && rStopsCounter >= rStops) {
+						if(lStopsCounter >= lStops || rStopsCounter >= rStops) {
 							state = STATE_DONE;
 							lStopsCounter = 0;
 							rStopsCounter = 0;
