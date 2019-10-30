@@ -597,7 +597,7 @@ void loadEEPROM() {
 
 void saveDefaultEEPROM() {
 	shotMode = 0;
-	pulSpeed = 4000;
+	pulSpeed = 100;
 	pulAcceleration = 100;
 	stops = 0;
 	preShotTime = 3000;
@@ -805,8 +805,10 @@ void calcStops() {
 		rCalcStep = rNext;
 
 		lStops = (l1 - l0) / lCalcStep;
+		lStops = max(lStops, 1);
 		//l += ((l1 - l0) % lNext) ? 1 : 0;
 		rStops = (r1 - r0) / rCalcStep;
+		rStops = max(rStops, 1);
 		//r += ((r1 - r0) % rNext) ? 1 : 0;
 
 		//TODO: ?
